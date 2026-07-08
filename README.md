@@ -1,9 +1,9 @@
-# 华医网小助手 v3.4
+# 华医网小助手 v3.5
 
 > 全自动智能刷课 | 真实适配2026华医网Vue SPA新版 | 学分规划 | 无人值守
 
 [![License](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.4.1-brightgreen.svg)](https://github.com/wzgrx/hua-yi-helper)
+[![Version](https://img.shields.io/badge/version-3.5.0-brightgreen.svg)](https://github.com/wzgrx/hua-yi-helper)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey%20%7C%20Win11-orange.svg)](https://github.com/wzgrx/hua-yi-helper)
 
 ---
@@ -175,3 +175,30 @@
   - 考试页5道题目正确解析(选项GUID随机化不影响)
   - 学分分析: 10/25分(公需5+其他5), 缺口15分
   - 课程列表: 12门课程正确扫描
+- **考试结果解析**: 从table和div两种结构提取正确答案, 供下次考试使用
+- **选项点击可靠性**: 先直接设置input.checked=true再click, 回退到点击父元素
+
+## v3.5.0 标签页管理 + UI增强 (2026-07-08)
+
+### 全局window.open拦截
+- 在页面加载前(零号拦截器)重写`window.open`函数
+- 所有`window.open(url)`调用都重定向到`location.href = url`(同标签页导航)
+- 同时拦截`a[target="_blank"]`的点击事件, 改为同标签页导航
+- **彻底解决"动不动打开几百个tab标签页, 卡死电脑"的问题**
+- 浏览器验证: `window.open("/pages/study_info_list.aspx")`成功在同标签页跳转
+
+### UI面板增强
+- 新增学分状态显示行: `学分: 5/25`
+- 新增任务进度显示行: `进度: 0/3`
+- `CreditPlanner.analyze()`和`showTasks()`时自动更新显示
+
+### "学习完毕"课程正确处理
+- 只有`已申请`才算真正完成(学分已到账)
+- `学习完毕`表示课件已学完但证书未申请/考试未考
+- 这些课程被优先排序到计划最前面(最快能拿到学分)
+- 计划排序: 学习完毕 > 未学习 > 播放中 > 学习中 > 其他
+
+### 浏览器验证
+- `window.open`拦截: ✅ 同标签页跳转, 不开新标签页
+- 学分分析: ✅ 5/25分(公需5已申请, 其他0, 2门学习完毕待考, 4门学习中)
+- 课程扫描: ✅ 12门课程正确识别
