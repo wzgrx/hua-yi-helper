@@ -1675,6 +1675,11 @@ function createControlPanel() {
   btnRow1.style.cssText = "display:flex;gap:4px;margin-bottom:4px;";
   
   var makePlanBtn = createBtn('\u{1F3AF} 计划', '#1565C0', function() {
+    if (!URL.isCME && !URL.isStudyList && !URL.isVueSPA()) {
+      log('[UI] 跳转到课程列表页生成计划...');
+      window.location.href = '/pages/cme.aspx';
+      return;
+    }
     var analysis = CreditPlanner.analyze();
     if (analysis) {
       var plan = CreditPlanner.generatePlan(analysis);
@@ -1684,6 +1689,11 @@ function createControlPanel() {
   });
   
   var startBtn = createBtn('\u25B6 执行', '#2e7d32', function() {
+    if (!URL.isCME && !URL.isStudyList && !URL.isVueSPA()) {
+      log('[UI] 跳转到课程列表页...');
+      window.location.href = '/pages/cme.aspx';
+      return;
+    }
     SmartEngine.start();
   });
   
@@ -1896,6 +1906,10 @@ function mainRouter() {
         if (analysis && !analysis.met) {
           log('[学分] 缺口: ' + analysis.totalRemaining + '分 (公需' + analysis.publicRemaining + ', 其他' + analysis.otherRemaining + ')');
           CreditPlanner.showQuickStatus(analysis);
+          if (!SmartEngine._running) {
+            log('[引擎] 发现课程, 自动开始执行计划');
+            SmartEngine.start();
+          }
         } else if (!analysis || analysis.total === 0) {
           retryCount++;
           if (retryCount <= maxRetries) {
