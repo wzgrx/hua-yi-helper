@@ -1,0 +1,22 @@
+{
+  "name": "hua-yi-helper",
+  "version": "3.0.0",
+  "description": "华医网小助手 v3.0 - 全自动智能刷课，智能学分规划，油猴/WSL/Hermes三端适配",
+  "main": "src/hermes/index.js",
+  "scripts": {
+    "test": "node tests/run-all.js",
+    "start": "node src/hermes/index.js",
+    "brush": "node src/hermes/index.js --mode brush",
+    "full": "node src/hermes/index.js --mode full",
+    "plan": "node src/hermes/index.js --mode plan"
+  },
+  "keywords": ["huayi", "91huayi", "华医网", "继续医学教育", "刷课"],
+  "author": "wzgrx",
+  "license": "AGPL-3.0",
+  "dependencies": {
+    "puppeteer-core": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

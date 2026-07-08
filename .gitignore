@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+*.log
+answers.json
+.DS_Store
+.user.js
+!src/tampermonkey/*.user.js
+hermes-profile/
+chrome-profile/
