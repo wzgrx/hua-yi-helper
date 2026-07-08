@@ -1567,6 +1567,34 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
 
   window.__HY_examTries = currentTries;
 }
+
+function submitExam() {
+  log("提交答案...");
+  var ri = window.__HY_examInfo;
+  if (ri) {
+    Store.set(CONFIG.keys.rightAnswers, ri.rightAnswers);
+    Store.set(CONFIG.keys.allAnswers, ri.allAnswers);
+  }
+  var btn = document.querySelector("input[type=button][value*=交卷],input[type=button][value*=提交]");
+  if (!btn) {
+    var all = document.querySelectorAll("input[type=button],button");
+    for (var i=0;i<all.length;i++) {
+      var t = (all[i].value||all[i].textContent||"").trim();
+      if (t.indexOf("交卷")>=0||t.indexOf("提交")>=0) { btn = all[i]; break; }
+    }
+  }
+  if (btn) {
+    btn.click();
+    setTimeout(function(){
+      var cb = document.querySelector("button:contains(确定),input[type=button][value*=确定]");
+      if (cb) cb.click();
+      log("提交完成");
+    },2000);
+  } else {
+    log("未找到提交按钮");
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 6. UI控件面板
 // ═══════════════════════════════════════════════════════════════
@@ -1766,10 +1794,6 @@ function mainRouter() {
     log('[路由] 学习记录页 → 运行学分规划');
     handleStudyList();
   }
-  else if (URL.isStudyList) {
-    log('[路由] 学习记录页(Vue SPA) → 运行学分规划');
-    handleStudyList();
-  }
   else if (URL.isCourseDetail) {
     log('[路由] 课程详情页(含课件列表) → 自动扫描课件并播放');
     handleCourseDetail();
@@ -1823,6 +1847,21 @@ function handleStudyList() {
     }
   }, 2000);
 }
+function doResult() {
+  log("[考试结果] 处理考试结果...");
+  try {
+    var results = document.querySelectorAll(".result-item,.exam-result,.question-result,table.tablestyle tr");
+    var ra = Store.get(CONFIG.keys.rightAnswers, {});
+    for (var r=0;r<results.length;r++) {
+      var txt = results[r].innerText||"";
+      if (txt.indexOf("正确")>=0||txt.indexOf("对")>=0) {
+        log("题目正确: "+txt.substring(0,30));
+      }
+    }
+  } catch(e) { log("doResult error: "+e.message); }
+  setTimeout(function(){ window.location.href="/cme/index"; }, 3000);
+}
+
 
 // 课程列表页处理
 function handleCourseList() {
@@ -1850,6 +1889,16 @@ function handleCourseDetail() {
     }
   }, 2000);
 }
+function goBackToCourseList() {
+  log("[导航] 返回课程列表");
+  var bl = document.querySelectorAll("a[href*=course],a[href*=cme/index]");
+  for (var b=0;b<bl.length;b++) {
+    var h = bl[b].getAttribute("href");
+    if (h&&(h.indexOf("course")>=0||h.indexOf("cme")>=0)) { window.location.href=h; return; }
+  }
+  window.location.href = "/cme/index";
+}
+
 
 // 扫描课件列表，找到需要学习的课件
 function scanCoursewareItems() {
@@ -2062,7 +2111,5 @@ if (document.readyState === 'loading') {
   } catch(e) {
     console.log('[HYv3] 初始化错误: ' + e.message);
   }
-}
-// ═══════════════════════════════════════════════════════════════
-// 8. 主路由 - 页面类型分发 (Updated for 2026 site layout)
-// ═══════════════════════════════════════════════════════════════
+ }
+
