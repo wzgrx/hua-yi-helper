@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      3.2.0
+// @version      3.3.0
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -82,9 +82,9 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.2.0";
+var HY_VERSION = "3.3.0";
 var HY_UPDATE_DATE = "2026.7.9";
-var HY_UPDATE_LOG = "v3.2.0 全面修复: 学习记录表优先(study_info_list/cme.aspx)|Vue SPA重试+备用选择器|cme.aspx 4列表格自动识别|btn67 window.open拦截|HY_VERSION作用域修复";
+var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
   "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
   "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",
@@ -1046,6 +1046,7 @@ var SmartEngine = {
     log('[引擎] 视频页加载, 启动播放器...');
     this.updateUI('video');
     cleanupRestrictions();
+    this._running = true;
     
     var self = this;
     var checkCount = 0;
@@ -1077,16 +1078,17 @@ var SmartEngine = {
     }, 1000);
     
     var checkTimer = setInterval(function() {
-      if (self._running === false && checkCount > 0) { clearInterval(checkTimer); return; }
+      if (!self._running) { clearInterval(checkTimer); return; }
       checkCount++;
       try {
         // 立即检查是否可进入考试(视频可能已完成)
         var jrksBtn = document.getElementById('jrks');
-        if (jrksBtn && jrksBtn.style.display !== 'none') {
-          log('[引擎] 检测到进入考试, 进入考试');
+        if (jrksBtn && jrksBtn.style.display !== 'none' && !jrksBtn.hasAttribute('disabled')) {
+          log('[引擎] 进入考试按钮已启用, 进入考试');
           clearInterval(checkTimer);
-          if (jrksBtn.href && jrksBtn.href !== location.href && !jrksBtn.href.startsWith('javascript')) {
-            window.location.href = jrksBtn.href;
+          var rawHref = jrksBtn.getAttribute('href') || '';
+          if (rawHref && rawHref !== '#' && !rawHref.startsWith('javascript') && !rawHref.startsWith('#')) {
+            window.location.href = rawHref;
           } else {
             try { jrksBtn.click(); } catch(e) {}
           }
@@ -1108,25 +1110,45 @@ var SmartEngine = {
             log('[引擎] 视频进度 ' + Math.round(progress * 100) + '% (剩余' + remaining + '秒)');
           }
           if (progress > 0.95 || (video.duration > 0 && video.currentTime >= video.duration - 5)) {
-            clearInterval(checkTimer);
-            log('[引擎] 视频播放完成!');
             var jrksFinal = document.getElementById('jrks');
-            if (jrksFinal && jrksFinal.style.display !== 'none') {
-              log('[引擎] 检测到进入考试, 进入考试');
+            if (jrksFinal && jrksFinal.style.display !== 'none' && !jrksFinal.hasAttribute('disabled')) {
+              clearInterval(checkTimer);
+              log('[引擎] 视频播放完成! 进入考试');
               self._running = false;
-              if (jrksFinal.tagName === 'A' && jrksFinal.href) {
-                window.location.href = jrksFinal.href;
+              var finalHref = jrksFinal.getAttribute('href') || '';
+              if (jrksFinal.tagName === 'A' && finalHref && finalHref !== '#' && !finalHref.startsWith('javascript') && !finalHref.startsWith('#')) {
+                window.location.href = finalHref;
               } else {
-                jrksFinal.click();
+                try { jrksFinal.click(); } catch(e) {}
               }
+              return;
+            } else if (jrksFinal && jrksFinal.style.display !== 'none' && jrksFinal.hasAttribute('disabled')) {
+              if (checkCount % 10 === 0) {
+                log('[引擎] 视频已完成, 等待考试按钮启用...');
+              }
+              // Keep timer running, wait for button to enable
             } else {
-              log('[引擎] 返回课程列表');
+              clearInterval(checkTimer);
+              log('[引擎] 视频播放完成, 返回课程列表');
               self._running = false;
               window.location.href = '/pages/study_info_list.aspx';
+              return;
+            }
+          }
+        } else {
+          var jrksNoVideo = document.getElementById('jrks');
+          if (jrksNoVideo && jrksNoVideo.style.display !== 'none' && !jrksNoVideo.hasAttribute('disabled')) {
+            clearInterval(checkTimer);
+            log('[引擎] 无视频元素, 进入考试');
+            self._running = false;
+            var noVideoHref = jrksNoVideo.getAttribute('href') || '';
+            if (jrksNoVideo.tagName === 'A' && noVideoHref && noVideoHref !== '#' && !noVideoHref.startsWith('javascript') && !noVideoHref.startsWith('#')) {
+              window.location.href = noVideoHref;
+            } else {
+              try { jrksNoVideo.click(); } catch(e) {}
             }
             return;
           }
-        } else {
           var pageText = document.body ? (document.body.textContent || '') : '';
           if (pageText.indexOf('已完成') >= 0) {
             clearInterval(checkTimer);
