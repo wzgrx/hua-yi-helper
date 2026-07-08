@@ -11,7 +11,38 @@
 // @grant        GM_deleteValue
 // @grant        GM_listValues
 // @grant        GM_addStyle
-// @grant        GM_info
+// @grant        GM_infunction enterExam() {
+  try {
+    var jrks = document.getElementById("jrks");
+    if (jrks) {
+      if (jrks.getAttribute("disabled") === "disabled" || jrks.style.pointerEvents === "none") {
+        jrks.removeAttribute("disabled");
+        jrks.style.pointerEvents = "auto";
+        jrks.style.background = "";
+        jrks.style.color = "";
+      }
+      jrks.click();
+      setTimeout(function() {
+        if (window.location.href.indexOf("exam.aspx") === -1) {
+          var m = window.location.href.match(/cwid=([a-f0-9-]+)/i);
+          if (m && m[1]) {
+            log("[考试] 直接导航到考试页");
+            window.location.href = "/pages/exam.aspx?cwid=" + m[1];
+          }
+        }
+      }, 2000);
+      return;
+    }
+    var btns = document.querySelectorAll("button, input[type=\"button\"]");
+    for (var i = 0; i < btns.length; i++) {
+      var t = btns[i].value || btns[i].textContent || "";
+      if (t.indexOf("进入考试") !== -1 || t.indexOf("考试") !== -1) {
+        btns[i].click();
+        return;
+      }
+    }
+  } catch(e) {}
+}o
 // @run-at       document-start
 // @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js
 // @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js
