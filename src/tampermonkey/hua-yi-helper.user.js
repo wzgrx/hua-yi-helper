@@ -599,6 +599,17 @@ var VueCourseScanner = {
           if (actionBtn) action = (actionBtn.value || actionBtn.textContent || '').trim();
         }
         
+        // Extract action URL from button onclick (e.g. apply_certificate.aspx or course.aspx)
+        var actionUrl = '';
+        if (cells.length >= 8) {
+          var actionBtn2 = cells[7].querySelector('input[type="button"], button');
+          if (actionBtn2) {
+            var oc = actionBtn2.getAttribute('onclick') || '';
+            var ocMatch = oc.match(/location\.href="([^"]+)"/) || oc.match(/location\.href='([^']+)'/);
+            if (ocMatch) actionUrl = ocMatch[1];
+          }
+        }
+        
         // Determine completion state:
         // "已申请" = fully complete, credits received
         // "学习完毕" + "申请证书" = coursewares done, just need to apply certificate
@@ -636,7 +647,8 @@ var VueCourseScanner = {
           progressDone: pDone,
           progressTotal: pTotal,
           progressPct: pPct,
-          action: action
+          action: action,
+          actionUrl: actionUrl
         });
         
         log('[学分] ' + name.substring(0, 20) + ' | ' + status + ' | ' + progress + ' | ' + (action || '无操作'));
@@ -688,7 +700,8 @@ var CreditPlanner = {
           progressDone: pDone,
           progressTotal: pTotal,
           progressPct: pPct,
-          action: c.action || ''
+          action: c.action || '',
+          actionUrl: c.actionUrl || ''
         };
       });
     } else {
@@ -789,7 +802,7 @@ var CreditPlanner = {
       
       tasks.push({
         name: c.name,
-        url: c.link || ('/pages/course.aspx?cid=' + c.name),
+        url: c.actionUrl || c.link || ('/pages/course.aspx?cid=' + c.name),
         credit: c.credit,
         status: c.status,
         isPublic: c.isPublic,
