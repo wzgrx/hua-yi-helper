@@ -1167,10 +1167,10 @@ var SmartEngine = {
           if (nextTask && nextTask.url) {
             safeNavigate(nextTask.url);
           } else {
-            window.location.href = '/cme/index';
+            safeNavigate('/cme/index');
           }
         } else {
-          window.location.href = '/cme/index';
+          safeNavigate('/cme/index');
         }
       }, 2000);
     }
@@ -1435,7 +1435,7 @@ var SmartEngine = {
           clearInterval(checkTimer);
           var rawHref = jrksBtn.getAttribute('href') || '';
           if (rawHref && rawHref !== '#' && !rawHref.startsWith('javascript') && !rawHref.startsWith('#')) {
-            window.location.href = rawHref;
+            safeNavigate(rawHref);
           } else {
             try { jrksBtn.click(); } catch(e) {}
           }
@@ -1488,7 +1488,7 @@ var SmartEngine = {
               self._running = false;
               var finalHref = jrksFinal.getAttribute('href') || '';
               if (jrksFinal.tagName === 'A' && finalHref && finalHref !== '#' && !finalHref.startsWith('javascript') && !finalHref.startsWith('#')) {
-                window.location.href = finalHref;
+                safeNavigate(finalHref);
               } else {
                 try { jrksFinal.click(); } catch(e) {}
               }
@@ -1502,7 +1502,7 @@ var SmartEngine = {
               clearInterval(checkTimer);
               log('[引擎] 视频播放完成, 返回课程列表');
               self._running = false;
-              window.location.href = '/pages/study_info_list.aspx';
+              safeNavigate('/pages/study_info_list.aspx');
               return;
             }
           }
@@ -1514,7 +1514,7 @@ var SmartEngine = {
             self._running = false;
             var noVideoHref = jrksNoVideo.getAttribute('href') || '';
             if (jrksNoVideo.tagName === 'A' && noVideoHref && noVideoHref !== '#' && !noVideoHref.startsWith('javascript') && !noVideoHref.startsWith('#')) {
-              window.location.href = noVideoHref;
+              safeNavigate(noVideoHref);
             } else {
               try { jrksNoVideo.click(); } catch(e) {}
             }
@@ -1525,7 +1525,7 @@ var SmartEngine = {
             clearInterval(checkTimer);
             log('[引擎] 课程已完成');
             self._running = false;
-            window.location.href = '/pages/study_info_list.aspx';
+            safeNavigate('/pages/study_info_list.aspx');
             return;
           }
         }
@@ -1536,7 +1536,7 @@ var SmartEngine = {
         clearInterval(checkTimer);
         log('[引擎] 视频检测超时, 返回课程列表');
         self._running = false;
-        window.location.href = '/pages/study_info_list.aspx';
+        safeNavigate('/pages/study_info_list.aspx');
       }
     }, 1000);
     window.__HY_videoCheck = checkTimer;
