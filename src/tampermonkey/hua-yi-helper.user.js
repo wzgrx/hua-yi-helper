@@ -124,14 +124,15 @@ var HY_HISTORY = [
   EventTarget.prototype.addEventListener = function(type, listener, options) {
     var lStr = String(listener);
 
-    // 拦截右键菜单禁用
-    if (type === 'contextmenu') {
+    // 拦截右键菜单禁用（仅匹配 return false 模式，不拦截所有 contextmenu）
+    if (type === 'contextmenu' && lStr.indexOf('return false') !== -1) {
       _safeLog('[HY] 已拦截右键屏蔽');
       return;
     }
 
-    // 拦截所有检查 isTrusted 的click监听（反脚本检测核心）
-    if (this === document && type === 'click' && lStr.indexOf('isTrusted') !== -1) {
+    // 拦截反脚本click检测（仅当同时出现 isTrusted + blockAbnormal 时才拦截）
+    if (this === document && type === 'click' && lStr.indexOf('isTrusted') !== -1 && 
+        (lStr.indexOf('blockAbnormalPlugin') !== -1 || lStr.indexOf('blockAbnormal') !== -1)) {
       _safeLog('[HY] 已拦截反脚本click检测');
       return;
     }
@@ -274,7 +275,7 @@ var URL = (function() {
     full: href,
     last: last,
     isStudyList: last === 'study_info_list.aspx',
-    isCourseList: last === 'course.aspx' || last === 'cme.aspx',
+    isCourseList: (last === 'course.aspx' && href.indexOf('cid=') === -1) || last === 'cme.aspx',
     isCourseDetail: last === 'course.aspx' && href.indexOf('cid=') !== -1,
     isFME: last === 'fme.aspx',
     isCmeIndex: href.indexOf('/cme/index') !== -1,
@@ -731,6 +732,11 @@ var CreditPlanner = {
 // 优先级: 未学习 > 播放至x%(x<100) > 学习中 > 待考试(仅在full模式)
 // ═══════════════════════════════════════════════════════════════
 function autoScanCourses() {
+  // 安全保护：只在明确的课程相关页面运行
+  if (!URL.isCourseList && !URL.isCourseDetail && !URL.isStudyList && !URL.isFME && URL.full.indexOf('cme/index') === -1) {
+    log('[课程扫描] 跳过：当前页面不是课程列表');
+    return false;
+  }
   log('[课程扫描] 开始扫描待学习课程...');
 
   // 辅助: 查找与状态元素关联的课程链接
@@ -774,6 +780,8 @@ function autoScanCourses() {
   function tryClick(el, label) {
     var link = findCourseLink(el);
     if (link) {
+      // 防止打开新标签页（去掉 target="_blank"）
+      if (link.target === '_blank') link.target = '_self';
       log('[课程扫描] ✅ ' + label + ' → 进入: ' + (link.innerText || link.textContent || '').trim());
       link.click();
       return true;
