@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      3.6.1
+// @version      3.7.0
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -113,7 +113,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.6.1";
+var HY_VERSION = "3.7.0";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -654,13 +654,22 @@ var CreditPlanner = {
     if (tableData && tableData.courses && tableData.courses.length > 0) {
       log('[学分] 从学习记录表解析到 ' + tableData.courses.length + ' 门课');
       courses = tableData.courses.map(function(c) {
+        // Parse progress like '7/7', '0/12', '3/5'
+        var pm = (c.progress || '').match(/(\d+)\/(\d+)/);
+        var pDone = pm ? parseInt(pm[1]) : 0;
+        var pTotal = pm ? parseInt(pm[2]) : 0;
+        var pPct = pTotal > 0 ? Math.round(pDone / pTotal * 100) : 0;
         return {
           name: c.name,
           link: c.link,
           credit: c.credit,
           status: c.status,
           isPublic: c.isPublic,
-          completed: c.completed
+          completed: c.completed,
+          progress: c.progress || '',
+          progressDone: pDone,
+          progressTotal: pTotal,
+          progressPct: pPct
         };
       });
     } else {
@@ -714,16 +723,30 @@ var CreditPlanner = {
     
     // 从未完成课程中筛选 (包括'学习完毕'但未申请证书的)
     var unfinished = analysis.courses.filter(function(c) { return !c.completed; });
-    // '学习完毕' courses need exam/certificate - prioritize them
+    
+    // 智能选课排序 (v3.7.0): 最少 effort 获取最多学分
+    // 优先级: 学习完毕(100%, 只需考试) > 高进度(60%+) > 中进度(20%+) > 低进度(>0%) > 学习中(0%) > 未学习 > 其他
     unfinished.sort(function(a, b) {
-      var pa = a.status === '学习完毕' ? 0 : a.status === '未学习' ? 1 : a.status.indexOf('播放') >= 0 ? 2 : a.status === '学习中' ? 3 : 4;
-      var pb = b.status === '学习完毕' ? 0 : b.status === '未学习' ? 1 : b.status.indexOf('播放') >= 0 ? 2 : b.status === '学习中' ? 3 : 4;
-      return pa - pb;
+      // 1. '学习完毕' = 100% progress, just need exam/cert = highest priority
+      var aDone = (a.status === '学习完毕') ? 1 : 0;
+      var bDone = (b.status === '学习完毕') ? 1 : 0;
+      if (aDone !== bDone) return bDone - aDone; // 学习完毕 first
+      
+      // 2. Higher progress % = closer to completion = higher priority
+      var aPct = a.progressPct || 0;
+      var bPct = b.progressPct || 0;
+      if (aPct !== bPct) return bPct - aPct; // Higher % first
+      
+      // 3. Same % = fewer remaining coursewares = faster to finish
+      var aRem = (a.progressTotal || 999) - (a.progressDone || 0);
+      var bRem = (b.progressTotal || 999) - (b.progressDone || 0);
+      if (aRem !== bRem) return aRem - bRem; // Fewer remaining first
+      
+      // 4. Same remaining = higher credit = better value
+      return b.credit - a.credit;
     });
     
-    // (Priority sort already done above)
-    
-    // 优先公需课
+    // 优先公需课 (within same priority tier)
     unfinished.sort(function(a, b) {
       if (a.isPublic !== b.isPublic) return a.isPublic ? -1 : 1;
       return 0;
@@ -746,7 +769,9 @@ var CreditPlanner = {
         credit: c.credit,
         status: c.status,
         isPublic: c.isPublic,
-        completed: false
+        completed: false,
+        progress: c.progress || '',
+        progressPct: c.progressPct || 0
       });
       
       acc += c.credit;
@@ -836,7 +861,8 @@ var SmartEngine = {
     if (!plan || !plan.tasks) { log('[引擎] 无计划'); return; }
     log('[引擎] 计划: ' + plan.tasks.length + ' 个任务');
     for (var i = 0; i < plan.tasks.length; i++) {
-      log('[引擎]   #' + (i+1) + ' ' + plan.tasks[i].name + ' (' + plan.tasks[i].credit + '分)');
+      var prog = plan.tasks[i].progressPct ? ' [' + plan.tasks[i].progressPct + '%]' : '';
+      log('[引擎]   #' + (i+1) + ' ' + plan.tasks[i].name + ' (' + plan.tasks[i].credit + '分' + (plan.tasks[i].status === '学习完毕' ? ', 待考试' : '') + ')' + prog);
     }
     var idx = Store.g(HY_PLAN_IDX, 0);
     log('[引擎] 当前进度: ' + idx + '/' + plan.tasks.length);
