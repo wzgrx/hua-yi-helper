@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      3.4.0
+// @version      3.5.0
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -56,6 +56,36 @@
   }
   window.__HY_log = _safeLog;
   try { window.blockAbnormalPlugin = function() {}; } catch(e) {}
+  
+  // v3.5.0: Global window.open interception - prevent hundreds of tabs
+  try {
+    var _origOpen = window.open;
+    window.open = function(url, name, specs) {
+      if (!url || url === 'about:blank' || url.indexOf('javascript:') === 0) return null;
+      // Redirect all window.open calls to location.href (same tab navigation)
+      try {
+        if (url.indexOf('http') === 0) {
+          window.location.href = url;
+        } else if (url.indexOf('/') === 0) {
+          window.location.href = window.location.origin + url;
+        } else {
+          window.location.href = url;
+        }
+      } catch(e) {}
+      return null;
+    };
+    // Also intercept document.execCommand('window.open') and target=_blank links
+    document.addEventListener('click', function(e) {
+      var el = e.target;
+      if (!el || !el.closest) return;
+      var link = el.closest('a[target="_blank"]');
+      if (link && link.href && link.href.indexOf('javascript:') === -1) {
+        e.preventDefault();
+        e.stopPropagation();
+        try { window.location.href = link.href; } catch(e2) {}
+      }
+    }, true);
+  } catch(e) {}
   if (typeof MutationObserver !== 'undefined') {
     var _obs = new MutationObserver(function(muts, obs) {
       if (document.body) {
@@ -82,7 +112,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.4.0";
+var HY_VERSION = "3.5.0";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -567,7 +597,8 @@ var VueCourseScanner = {
           progress = (cells[6].textContent || '').trim();
         }
         
-        var completed = status === '学习完毕' || status === '已申请';
+        var completed = status === '已申请'; // Only '已申请' means truly done
+        // '学习完毕' means coursewares done but certificate not yet applied
         var isInProgress = status === '学习中';
         
         if (completed) {
@@ -663,6 +694,9 @@ var CreditPlanner = {
         ' (公需' + result.publicEarned + '/' + result.publicTarget +
         ' 其他' + result.otherEarned + '/' + result.otherTarget + ')');
     
+    // Update UI credit display
+    try { if (window.HY_updateCredits) window.HY_updateCredits(result.totalEarned, result.targetTotal, result.publicEarned, result.publicTarget); } catch(e) {}
+    
     return result;
   },
   
@@ -673,16 +707,16 @@ var CreditPlanner = {
       return null;
     }
     
-    // 从未完成课程中筛选
+    // 从未完成课程中筛选 (包括'学习完毕'但未申请证书的)
     var unfinished = analysis.courses.filter(function(c) { return !c.completed; });
-    
-    // 优先级排序: 未学习 > 播放至x% > 学习中 > 待考试
+    // '学习完毕' courses need exam/certificate - prioritize them
     unfinished.sort(function(a, b) {
-      var pa = a.status === '未学习' ? 0 : a.status.indexOf('播放至') >= 0 ? 1 : a.status === '学习中' ? 2 : 3;
-      var pb = b.status === '未学习' ? 0 : b.status.indexOf('播放至') >= 0 ? 1 : b.status === '学习中' ? 2 : 3;
-      if (pa !== pb) return pa - pb;
-      return b.credit - a.credit;
+      var pa = a.status === '学习完毕' ? 0 : a.status === '未学习' ? 1 : a.status.indexOf('播放') >= 0 ? 2 : a.status === '学习中' ? 3 : 4;
+      var pb = b.status === '学习完毕' ? 0 : b.status === '未学习' ? 1 : b.status.indexOf('播放') >= 0 ? 2 : b.status === '学习中' ? 3 : 4;
+      return pa - pb;
     });
+    
+    // (Priority sort already done above)
     
     // 优先公需课
     unfinished.sort(function(a, b) {
@@ -801,6 +835,7 @@ var SmartEngine = {
     }
     var idx = Store.g(HY_PLAN_IDX, 0);
     log('[引擎] 当前进度: ' + idx + '/' + plan.tasks.length);
+    try { if (window.HY_updateTaskProgress) window.HY_updateTaskProgress(idx, plan.tasks.length); } catch(e) {}
   },
   
   // 开始执行 - 需要先在课程列表页
@@ -1787,6 +1822,18 @@ function createControlPanel() {
   statusRow.appendChild(statusDot);
   statusRow.appendChild(statusLabel);
   
+  // Credit status display (v3.5.0)
+  var creditBox = document.createElement("div");
+  creditBox.id = "HY_creditBox";
+  creditBox.style.cssText = "background:rgba(255,255,255,.05);border-radius:4px;padding:4px 6px;margin-bottom:6px;font-size:11px;";
+  creditBox.innerHTML = '<span style="color:#888">学分:</span> <span id="HY_creditEarned" style="color:#4caf50;font-weight:bold">--</span>/<span id="HY_creditTarget" style="color:#aaa">25</span>';
+  
+  // Task progress display
+  var taskBox = document.createElement("div");
+  taskBox.id = "HY_taskBox";
+  taskBox.style.cssText = "background:rgba(255,255,255,.05);border-radius:4px;padding:4px 6px;margin-bottom:6px;font-size:11px;";
+  taskBox.innerHTML = '<span style="color:#888">进度:</span> <span id="HY_taskProgress" style="color:#2196f3">0/0</span>';
+  
   // Mode selector
   var modeSelect = document.createElement("select");
   modeSelect.id = "HY_modeSelect";
@@ -1875,6 +1922,8 @@ function createControlPanel() {
   
   // Assemble body
   body.appendChild(statusRow);
+  body.appendChild(creditBox);
+  body.appendChild(taskBox);
   body.appendChild(modeSelect);
   body.appendChild(btnRow1);
   body.appendChild(btnRow2);
@@ -1930,6 +1979,20 @@ function createControlPanel() {
   if (savedTop) panel.style.top = savedTop;
   
   // Expose state control
+  // v3.5.0: Update credit display
+  window.HY_updateCredits = function(earned, target, publicEarned, publicTarget) {
+    var el = document.getElementById('HY_creditEarned');
+    var el2 = document.getElementById('HY_creditTarget');
+    if (el) el.textContent = earned;
+    if (el2) el2.textContent = target || 25;
+  };
+  
+  // v3.5.0: Update task progress
+  window.HY_updateTaskProgress = function(current, total) {
+    var el = document.getElementById('HY_taskProgress');
+    if (el) el.textContent = current + '/' + total;
+  };
+  
   window.HY_setPanelState = function(state, label) {
     var states = {
       idle:    { c: '#9e9e9e', l: '\u{1F7E2} 等待中' },
