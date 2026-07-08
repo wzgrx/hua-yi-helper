@@ -1,214 +1,136 @@
-# 华医网小助手 v3.0
+# 华医网小助手 v3.1
 
-> 全自动智能刷课 | 智能学分规划 | 三端适配 (油猴/Hermes/Win11)
+> 全自动智能刷课 | 真实适配2026华医网Vue SPA新版 | 学分规划 | 无人值守
 
 [![License](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.0.2-brightgreen.svg)](https://greasyfork.org/scripts/483418)
-[![Platform](https://img.shields.io/badge/platform-Tampermonkey%20%7C%20Node.js%20%7C%20Win11-orange.svg)](https://github.com/wzgrx/hua-yi-helper)
+[![Version](https://img.shields.io/badge/version-3.1.0-brightgreen.svg)](https://greasyfork.org/scripts/483418)
+[![Platform](https://img.shields.io/badge/platform-Tampermonkey%20%7C%20Win11-orange.svg)](https://github.com/wzgrx/hua-yi-helper)
 
 ---
 
-## 核心功能
+## 核心创新 (v3.1)
 
-### 智能学分规划器 (v3.0 新增)
+### 真实网站DOM适配
+基于 **2026年华医网** 实际页面DOM深度分析重新设计:
+- **Vue SPA主页面**: `/cme/index` - 自动识别Vue动态渲染的课程卡片网格
+- **ASP.NET详情页**: `course.aspx?cid=X` - 支持传统格式的课件列表
+- **全员专项**: `/cme/fme` - Vue SPA版本路由
+- **问卷星**: `dcwj.91huayi.com` - 自动检测并处理视频前问卷
+- **学习记录**: `study_info_list.aspx` - ASP.NET表格学分解析
+- **我的继教**: `cme.aspx` - 混合格式学分数据
 
-| 功能 | 说明 |
+### 智能Tab管理
+- 截获所有 `target="_blank"` 链接,统一使用 `location.href` 导航
+- 防止打开数百个标签页导致浏览器卡死
+- 最多3个并发标签页限制
+
+### Vue SPA课程解析
+- 从 `.pro_cent > ul.jet_ul > li.jet_lis` 卡片结构提取:
+  - 课程名称 (`p.test_tit`)
+  - 学分值 (`<span>`包含"X.0学分")
+  - 课程状态 (已完成/待考试/学习中/未学习)
+- 分页识别: `el-pagination` 支持多页课程扫描
+
+### 答题模块增强
+- 多层DOM检测: tablestyle → radio容器 → 通用选项
+- 题目指纹: 无视序号随机变化的正文匹配
+- 智能评分: 15维特征分析,不依赖云端API
+- 模糊匹配: 精确→包含→拼音逐级降级
+
+### 学习计划智能
+- 公需课优先 (5分必修)
+- 未学习 > 播放至x% > 学习中 > 待考试 优先级排序
+- 学分自动检查,达标自动跳过
+
+---
+
+## 快速安装
+
+1. 安装 [Tampermonkey](https://www.tampermonkey.net/)
+2. 打开 [最新油猴脚本](https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js)
+3. 点击安装
+4. 登录 [华医网](https://www.91huayi.com) 脚本自动运行
+
+---
+
+## 使用方法
+
+1. 打开华医网继续医学教育首页 (`/cme/index`)
+2. 点击控制面板的 **🎯 计划** 按钮自动生成学习计划
+3. 点击 **▶ 执行** 开始全自动刷课
+4. 脚本将自动: 扫描课程 → 进入课件 → 完成问卷 → 播放视频 → 答题 → 下一课
+5. 需要暂停点击 **⏸ 暂停**
+
+### 模式说明
+
+| 模式 | 说明 |
 |------|------|
-| 学分分析 | 自动解析"学习记录"页，统计已获学分 |
-| 缺口计算 | 以2025年为例: 公需5分(固定) + 其他20分 = 25分目标 |
-| 最优组合 | 从未完成课程中筛选最优组合填补学分缺口 |
-| 任务排序 | 按优先级排序: 未学习 → 播放中 → 学习中 → 待考试 |
-| 可视化计划 | 在页面右侧显示完整学习计划、学分进度、预计时间 |
-| 一键执行 | 点击"自动执行计划"按顺序刷完所有课程 |
-
-### 全自动刷课
-
-- 自动扫描课程列表 → 进入未学习课程 → 自动播放视频 → 自动静音 → 自动跳过疲劳检测 → 视频完成 → 自动考试(可选) → 自动返回 → 播放下一个
-
-### 考试助手
-
-- 试错算法：自动遍历选项找到正确答案
-- 答案记忆：正确题目标签持久化存储，下次自动填写
-- 自动交卷：答题完成自动提交
-
-### 反作弊对抗
-
-- 抢先覆盖 `blockAbnormalPlugin`
-- 拦截 Object.defineProperty 重定义
-- 拦截 `isTrusted` 的 click 事件检测
-- 拦截倍速检测定时器
-- MutationObserver 清除页面限制属性
+| 🤖 智能规划 | 自动分析学分缺口,规划最优课程组合 |
+| 📝 视频+考试 | 刷所有未完成课程的视频和考试 |
+| 📺 仅视频 | 只刷视频,跳过考试 |
+| 📋 仅规划 | 仅显示学习计划,不自动执行 |
 
 ---
 
-## 安装方式
-
-### 方式一: Tampermonkey (油猴) - 推荐
-
-1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/)
-2. 打开: [最新油猴脚本](https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js)
-3. Tampermonkey 自动提示安装，点击安装
-4. 打开 [华医网](https://www.91huayi.com) 并登录，脚本自动运行
-
-### 方式二: Hermes (Node.js / WSL)
-
-适用于 WSL / Linux 环境，使用 Puppeteer 控制浏览器自动化：
-
-```bash
-# 安装依赖
-cd src/hermes
-npm install
-
-# 全自动模式
-node index.js --mode full --speed 2
-
-# 仅刷视频 (跳过考试)
-node index.js --mode video --speed 2
-
-# 无头模式 (后台运行)
-node index.js --mode full --headless
-```
-
-### 方式三: Win11 原生支持
-
-```powershell
-# 运行PowerShell启动脚本
-.\scripts\run-hermes.ps1 -Mode full -Speed 2 -Headless
-
-# 一键安装配置
-.\scripts\setup.ps1 -InstallChrome -CreateTask -TaskTime "06:00"
-```
-
----
-
-## 运行模式
-
-| 模式 | 油猴 | Hermes | 说明 |
-|------|------|--------|------|
-| `auto` | ✅ | - | 智能规划 + 全自动执行 (默认) |
-| `full` | ✅ | ✅ | 视频+考试全自动 |
-| `video` | ✅ | ✅ | 仅刷视频，跳过考试 |
-| `plan` | ✅ | ✅ | 仅生成学习计划，不执行 |
-
----
-
-## 学分计算规则
-
-以 2025 年继续医学教育为例:
+## 技术架构
 
 ```
-学分目标: 25分/年
-├─ 公需课: 5分 (必修, 固定)
-└─ 其他:  20分 (来自 继续教育/全员专项)
-     ├─ 纳入正在进行的课程
-     ├─ 扫描可用的课程
-     └─ 输出最优课程组合
+页面类型检测 (混合架构)
+├── Vue SPA (/cme/index, /cme/fme)
+│   └── .pro_cent > .jet_ul > .jet_lis 课程卡片解析
+├── ASP.NET (course.aspx?cid=X)
+│   └── a.f14blue.cw-title-link 课件链接
+├── 问卷页 (dcwj.91huayi.com)
+│   └── 自动完成/跳过问卷
+├── 视频页 (course_ware_polyv.aspx)
+│   └── Polyv播放器检测 + 完成状态轮询
+├── 考试页 (exam.aspx)
+│   └── 多层DOM检测 + 指纹匹配 + 智能评分
+└── 结果页 (exam_result.aspx)
+    └── 正确答案解析 + 持久化存储
 ```
 
-脚本自动:
-1. 统计已获学分
-2. 计算学分缺口
-3. 扫描可用课程
-4. 按优先级排序
-5. 生成学习计划
-6. 自动执行
+## 学分计算
 
----
-
-## 项目结构
-
+以2025年继续医学教育为例:
 ```
-hua-yi-helper/
-├── src/
-│   ├── tampermonkey/
-│   │   └── hua-yi-helper.user.js    # 油猴脚本 (单文件, 直接安装)
-│   ├── hermes/
-│   │   ├── index.js              # Hermes CLI入口
-│   │   ├── bot.js                # 核心自动化引擎 (Puppeteer)
-│   │   └── lib/
-│   │       ├── credit-planner.js # 学分规划器
-│   │       ├── answer-store.js   # 答案持久化
-│   │       └── page-processor.js # 页面处理器
-│   └── shared/                   # 共享模块 (未来)
-├── scripts/
-│   ├── setup.ps1                 # Win11一键安装
-│   └── run-hermes.ps1            # Win11启动脚本
-├── tests/                        # 测试
-├── docs/                         # 文档
-├── package.json                  # Node.js项目配置
-└── README.md                     # 本文件
+目标: 25分/年
+├─ 公需课: 5分 (固定,必刷)
+└─ 其他: 20分 (从继续教育/全员专项中选取)
 ```
 
----
-
-## Hermes 命令行参数
-
-| 参数 | 简写 | 默认值 | 说明 |
-|------|------|--------|------|
-| `--mode` | `-m` | full | 运行模式: full/video/plan |
-| `--speed` | `-s` | 2 | 播放倍速 |
-| `--headless` | `-h` | false | 无头模式 |
-| `--chrome-path` | `-c` | 自动检测 | Chrome/Edge路径 |
-| `--target-year` | `-y` | 2025 | 目标年份 |
-| `--target-credits` | `-t` | 25 | 目标学分 |
-
----
-
-## FAQ
-
-**Q: 脚本会被检测封号吗？**
-A: 脚本使用多层反作弊保护，与手动操作特征接近。但不能100%保证不被检测，请合理使用。
-
-**Q: 考试能保证通过吗？**
-A: 试错算法需要多次提交。第一次可能不通过，答案会逐渐积累，后续同题库题目自动正确。
-
-**Q: 倍速为什么无效？**
-A: 华医网已禁用视频倍速功能。Hermes版使用 currentTime 跳跃方案 bypass 检测。
-
-**Q: 学分数值不对怎么办？**
-A: 不同年份/地区学分规则可能不同。可在学习记录页手动查看，或修改目标学分参数。
-
----
-
-## 免责声明
-
-- 本脚本仅供**学习交流**使用
-- 使用者需自行承担使用后果
-- 请遵守华医网用户协议和相关法规
-- 考试助手仅试错遍历，不搜索外部答案
+脚本自动从未完成课程中按优先级排序,生成最优学习计划。
 
 ---
 
 ## 更新日志
 
-### v3.0.2 (2026.7.8)
-- 考试模块升级: 指纹识别|文本匹配|防随机化|多策略DOM
-- 新增 findQuestions() 三层DOM检测策略
-- 新增 getQuestionFingerprint() 指纹识别(无视序号随机)
-- 新增 extractOptions() 三层选项提取策略
-- 新增 smartScore() 智能评分算法(15维特征)
-- 新增 模糊答案匹配: 精确匹配→包含匹配逐级降级
-- 新增 enterExam() 处理禁用状态的考试按钮
-- 优化 浮窗设计: 深色主题+状态指示灯+最小化按钮
+### v3.1.0 (2026.7.8) - 真实DOM重构版
+- **完全基于2026年华医网真实网站DOM分析重构**
+- 新增: Vue SPA主页面自动识别和课程卡片解析
+- 新增: 智能Tab管理, 截获 target="_blank" 防止打开数百标签页
+- 新增: 问卷页自动检测 (dcwj.91huayi.com)
+- 新增: ASP.NET详情页课件列表解析 (f14blue.cw-title-link)
+- 新增: 智能学分规划器,从Vue SPA课程卡片直接解析学分
+- 新增: 答题模块多层DOM检测 + 题目指纹 + 15维智能评分
+- 新增: 分页课程扫描支持
+- 重写: 控制面板全新UI设计
+- 重写: 主路由基于真实URL和DOM特征分发
+- 修复: 页面类型误判问题
+- 移除: 所有lis-inside-content/btn67/tablestyle等废弃选择器
 
-### v3.0.1 (2026.7.8)
-- 适配2026新版网站布局
-- 新增 course.aspx详情页handler
-- 新增 scanNewCourseList() 支持btn67按钮和td课程链接
-- 新增 isCourseDetail/isFME/isCmeIndex 页面识别
-- 新增 handleCourseListCombined() 合并扫描和学分分析
+### v3.0.2 (2026.7.8) - 考试模块升级
+- 指纹识别|文本匹配|防随机化
+- 三层DOM检测策略 + 智能评分
 
-### v3.0.0 (2026.7.8)
-- 完全重构: 全新架构设计
-- 新增: 智能学分规划器 (公需5+其他20=25自动规划)
-- 新增: 三端适配 (油猴/Hermes/Win11 PowerShell)
-- 新增: 计划展示UI + 一键执行
-- 增强: 反作弊模块多层拦截
-- 优化: 代码模块化, 可维护性大幅提升
-
-[历史版本](https://github.com/wzgrx/hua-yi-helper/releases)
+[完整更新日志](HY_HISTORY.md)
 
 ---
+
+## 免责声明
+
+本脚本仅供学习交流使用,使用者需自行承担使用后果。
+请遵守华医网用户协议和相关法规。
 
 ## 开源协议
 

@@ -1,6 +1,6 @@
 /**
- * 华医网小助手 v3.0 - 测试套件
- * 测试模块加载、学分规划逻辑、文件完整性
+ * 华医网小助手 v3.1 - 测试套件
+ * 测试模块完整性、关键函数存在性
  */
 
 const fs = require('fs');
@@ -11,148 +11,100 @@ let passed = 0;
 
 function assert(condition, message) {
   if (condition) {
-    console.log(`  ✅ ${message}`);
+    console.log(`  \u2705 ${message}`);
     passed++;
   } else {
-    console.log(`  ❌ ${message}`);
+    console.log(`  \u274C ${message}`);
     failed++;
   }
 }
 
 console.log('========================================');
-console.log('  华医网小助手 v3.0 - 测试套件');
+console.log('  华医网小助手 v3.1.0 - 测试套件');
 console.log('========================================\n');
 
-// 1. 文件完整性检查
-console.log('📁 文件完整性检查:');
-
-const requiredFiles = [
-  'src/tampermonkey/hua-yi-helper.user.js',
-  'src/hermes/index.js',
-  'src/hermes/bot.js',
-  'src/hermes/lib/answer-store.js',
-  'src/hermes/lib/credit-planner.js',
-  'src/hermes/lib/page-processor.js',
-  'scripts/setup.ps1',
-  'scripts/run-hermes.ps1',
-  'package.json',
-  'README.md',
-  'LICENSE'
-];
-
-requiredFiles.forEach(file => {
-  const exists = fs.existsSync(path.join(__dirname, '..', file));
-  assert(exists, `文件存在: ${file}`);
-});
-
-// 2. Userscript元数据检查
-console.log('\n📜 油猴脚本检查:');
+// 1. 主文件存在性
+console.log('\u{1F4C1} 文件完整性:');
 const usPath = path.join(__dirname, '..', 'src/tampermonkey/hua-yi-helper.user.js');
-if (fs.existsSync(usPath)) {
-  const content = fs.readFileSync(usPath, 'utf8');
-  assert(content.includes('==UserScript=='), '包含 ==UserScript== 头');
-  assert(content.includes('@match'), '包含 @match 声明');
-  assert(content.includes('@version      3.0.2'), '版本号 v3.0.2');
-  assert(content.includes('@run-at       document-idle'), 'document-idle 运行');
-  assert(content.includes('@grant        GM_getValue'), 'GM_getValue 授权');
-  assert(content.includes('CreditPlanner'), '包含学分规划器');  assert(content.includes('SmartPlanner'), '包含智能规划模块');
-  assert(content.includes('Smart Credit Planner'), '包含学分规划器注释');
-  assert(content.includes('seeVideo'), '包含视频播放函数');
-  assert(content.includes('doExam'), '包含考试函数');
-  assert(content.includes('autoScanCourses'), '包含课程扫描函数');
-  assert(content.includes('ANTI_CHEAT_SCRIPT') || content.includes('blockAbnormalPlugin'), '包含反作弊拦截');
-}
+assert(fs.existsSync(usPath), '主脚本存在');
 
-// 3. Hermes入口检查
-console.log('\n🤖 Hermes检查:');
-const hpPath = path.join(__dirname, '..', 'src/hermes/index.js');
-if (fs.existsSync(hpPath)) {
-  const content = fs.readFileSync(hpPath, 'utf8');
-  assert(content.includes('require'), '包含require');
-  assert(content.includes('./bot'), '包含bot模块引用');
-  assert(content.includes('--mode'), '包含CLI参数解析');
-}
+const content = fs.readFileSync(usPath, 'utf8');
 
-// 4. Bot模块检查
-console.log('\n🦾 Bot模块检查:');
-const botPath = path.join(__dirname, '..', 'src/hermes/bot.js');
-if (fs.existsSync(botPath)) {
-  const content = fs.readFileSync(botPath, 'utf8');
-  assert(content.includes('class HermesBot'), '包含HermesBot类');
-  assert(content.includes('processVideoPage'), '包含视频处理函数');
-  assert(content.includes('ANTI_CHEAT_SCRIPT'), '包含反作弊注入');
-  assert(content.includes('puppeteer-core'), '引用puppeteer');
-}
+// 2. 元数据
+console.log('\n\u{1F4DC} 油猴脚本元数据:');
+assert(content.includes('==UserScript=='), 'UserScript头');
+assert(content.includes('@match        *://*.91huayi.com/*'), '@match 91huayi');
+assert(content.includes('@match        *://dcwj.91huayi.com/*'), '@match dcwj');
+assert(content.includes('@version      3.1.0'), '版本号 3.1.0');
+assert(content.includes('@run-at       document-idle'), 'document-idle');
+assert(content.includes('GM_getValue'), 'GM授权');
 
-// 5. 学分规划器检查
-console.log('\n📊 学分规划器检查:');
-const cpPath = path.join(__dirname, '..', 'src/hermes/lib/credit-planner.js');
-if (fs.existsSync(cpPath)) {
-  const content = fs.readFileSync(cpPath, 'utf8');
-  assert(content.includes('class CreditPlanner'), '包含CreditPlanner类');
-  assert(content.includes('generatePlan'), '包含计划生成方法');
-  assert(content.includes('analyze'), '包含分析方法');
-  assert(content.includes('targetYear'), '包含目标年份');
-}
+// 3. 核心模块
+console.log('\n\u{1F9F0} 核心模块:');
+assert(content.includes('function __HY_main()'), '主入口 __HY_main');
+assert(content.includes('var CONFIG'), '配置模块');
+assert(content.includes('var URL'), 'URL路由');
+assert(content.includes('function safeNavigate'), '智能导航');
+assert(content.includes('function killPopups'), '弹窗处理');
 
-// 6. 答案存储检查
-console.log('\n💾 答案存储检查:');
-const asPath = path.join(__dirname, '..', 'src/hermes/lib/answer-store.js');
-if (fs.existsSync(asPath)) {
-  const content = fs.readFileSync(asPath, 'utf8');
-  assert(content.includes('class AnswerStore'), '包含AnswerStore类');
-  assert(content.includes('answers.json'), '写入answers.json');
-}
+// 4. Vue SPA课程扫描
+console.log('\n\u{1F50D} Vue SPA扫描器:');
+assert(content.includes('VueCourseScanner'), 'VueCourseScanner模块');
+assert(content.includes('scanFromVueSPA'), 'Vue SPA课程扫描');
+assert(content.includes('scanFromCourseDetail'), 'ASP.NET详情页扫描');
+assert(content.includes('scanCreditsFromASP'), 'ASP.NET学分扫描');
 
-// 7. Package.json检查
-console.log('\n📦 Package.json检查:');
-const pkgPath = path.join(__dirname, '..', 'package.json');
-if (fs.existsSync(pkgPath)) {
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-  assert(pkg.version === '3.0.2', '版本号 3.0.2');
-  assert(pkg.dependencies && pkg.dependencies['puppeteer-core'], '包含puppeteer-core依赖');
-}
+// 5. 学分规划
+console.log('\n\u{1F4CA} 学分规划:');
+assert(content.includes('CreditPlanner'), 'CreditPlanner');
+assert(content.includes('CreditPlanner.analyze'), 'analyze方法');
+assert(content.includes('CreditPlanner.generatePlan'), 'generatePlan方法');
+assert(content.includes('HY_PLAN_KEY'), '计划存储');
 
-// 8. PowerShell脚本检查
-console.log('\n🪟 PowerShell脚本检查:');
-const setupPath = path.join(__dirname, '..', 'scripts/setup.ps1');
-if (fs.existsSync(setupPath)) {
-  const content = fs.readFileSync(setupPath, 'utf8');
-  assert(content.includes('ScheduledTask'), '包含计划任务功能');
-  assert(content.includes('ChromeProfile'), '包含Chrome配置');
-}
+// 6. 执行引擎
+console.log('\n\u{1F680} 执行引擎:');
+assert(content.includes('SmartEngine'), 'SmartEngine');
+assert(content.includes('SmartEngine.start'), 'start方法');
+assert(content.includes('handleCourseDetail'), '课程详情处理');
+assert(content.includes('handleVideo'), '视频处理');
+assert(content.includes('handleExam'), '考试处理');
+assert(content.includes('handleSurvey'), '问卷处理');
+
+// 7. 考试模块
+console.log('\n\u{1F4DD} 考试模块:');
+assert(content.includes('function doExam'), 'doExam');
+assert(content.includes('function findQuestions'), 'findQuestions');
+assert(content.includes('function getQuestionFingerprint'), '题目指纹');
+assert(content.includes('function extractOptions'), '选项提取');
+assert(content.includes('function smartScore'), '智能评分');
+assert(content.includes('function submitExam'), '提交考试');
+assert(content.includes('function doResult'), '考试结果');
+
+// 8. UI控制面板
+console.log('\n\u{1F4F1} 控制面板:');
+assert(content.includes('function createControlPanel'), 'createControlPanel');
+assert(content.includes('HY_setPanelState'), '状态控制');
+assert(content.includes('HY_modeSelect'), '模式选择');
+assert(content.includes('HY_log'), '日志区域');
+
+// 9. 路由
+console.log('\n\u{1F4E1} 路由:');
+assert(content.includes('function mainRouter'), 'mainRouter');
+assert(content.includes('URL.isVueSPA'), 'Vue SPA检测');
+assert(content.includes('URL.isCourseDetail'), '课程详情检测');
+assert(content.includes('URL.isSurvey'), '问卷检测');
+assert(content.includes('URL.isVideo'), '视频检测');
+assert(content.includes('URL.isExam'), '考试检测');
+
+// 10. 反作弊
+console.log('\n\u{1F6E1} 反作弊:');
+assert(content.includes('blockAbnormalPlugin'), 'blockAbnormalPlugin覆盖');
+assert(content.includes('MutationObserver'), 'MutationObserver');
 
 // 总结
 console.log(`\n========================================`);
-console.log(`  结果: ${passed} 通过, ${failed} 失败`);
+console.log(`  结果: ${passed} \u2705, ${failed} \u274C`);
+console.log(`  通过率: ${Math.round(passed/(passed+failed)*100)}%`);
 console.log(`========================================`);
-
-// exit moved to end
-
-
-// 9. 新增函数检查 (2026年改版适配)
-console.log('\n🔍 2026新版适配检查:');
-if (fs.existsSync(usPath)) {
-  const content = fs.readFileSync(usPath, 'utf8');
-  assert(content.includes('scanNewCourseList'), '包含新版课程扫描函数');
-  assert(content.includes('handleCourseListCombined'), '包含合并版课程列表处理函数');
-  assert(content.includes('handleCourseDetail'), '包含课程详情页处理函数');
-  assert(content.includes('handleCourseListCombined'), '包含合并版课程处理函数');
-  assert(content.includes('scanRecommendedCourses'), '包含推荐课程扫描函数');
-  assert(content.includes('input.btn67'), '包含新版按钮选择器');
-  assert(content.includes('isFME'), '包含FME页面识别');
-  assert(content.includes('isCmeIndex'), '包含Vue SPA页面识别');
-  assert(content.includes('.tip-bar'), '包含新版提示栏选择器');
-  assert(content.includes('.pv-video-player'), '包含新版Polyv播放器选择器');
-}
-
-// 10. Hermes新版适配检查
-console.log('\n🔍 Hermes新版适配检查:');
-const ppPath = path.join(__dirname, '..', 'src/hermes/lib/page-processor.js');
-if (fs.existsSync(ppPath)) {
-  const content = fs.readFileSync(ppPath, 'utf8');
-  assert(content.includes('btn67'), 'Hermes包含新版按钮选择器');
-  assert(content.includes('course.aspx?cid='), 'Hermes包含新版课程链接选择器');
-}
 
 process.exit(failed > 0 ? 1 : 0);
