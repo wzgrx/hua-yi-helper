@@ -413,7 +413,7 @@ var VueCourseScanner = {
       }
       
       // 课程卡片在 ul.jet_ul > li.jet_lis 内
-      var cards = proCent.querySelectorAll('li.jet_lis');
+      var cards = container.querySelectorAll('li.jet_lis');
       if (cards.length === 0) {
         // 回退: 可能在其他结构中
         cards = proCent.querySelectorAll('[class*="card"], [class*="item"], li');
