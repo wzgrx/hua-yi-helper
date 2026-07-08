@@ -52,7 +52,7 @@ if (fs.existsSync(usPath)) {
   const content = fs.readFileSync(usPath, 'utf8');
   assert(content.includes('==UserScript=='), '包含 ==UserScript== 头');
   assert(content.includes('@match'), '包含 @match 声明');
-  assert(content.includes('@version      3.0.1'), '版本号 v3.0.1');
+  assert(content.includes('@version      3.0.2'), '版本号 v3.0.2');
   assert(content.includes('@run-at       document-start'), 'document-start 运行');
   assert(content.includes('@grant        GM_getValue'), 'GM_getValue 授权');
   assert(content.includes('CreditPlanner'), '包含学分规划器');
@@ -109,7 +109,7 @@ console.log('\n📦 Package.json检查:');
 const pkgPath = path.join(__dirname, '..', 'package.json');
 if (fs.existsSync(pkgPath)) {
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-  assert(pkg.version === '3.0.0', '版本号 3.0.0');
+  assert(pkg.version === '3.0.2', '版本号 3.0.2');
   assert(pkg.dependencies && pkg.dependencies['puppeteer-core'], '包含puppeteer-core依赖');
 }
 
@@ -135,7 +135,7 @@ console.log('\n🔍 2026新版适配检查:');
 if (fs.existsSync(usPath)) {
   const content = fs.readFileSync(usPath, 'utf8');
   assert(content.includes('scanNewCourseList'), '包含新版课程扫描函数');
-  assert(content.includes('handleCourseListNew'), '包含新版课程列表处理函数');
+  assert(content.includes('handleCourseListCombined'), '包含合并版课程列表处理函数');
   assert(content.includes('handleCourseDetail'), '包含课程详情页处理函数');
   assert(content.includes('handleCourseListCombined'), '包含合并版课程处理函数');
   assert(content.includes('scanRecommendedCourses'), '包含推荐课程扫描函数');

@@ -955,25 +955,11 @@ function initPlayer(playerType) {
   var playerCheckTimer = setInterval(function() {
     playerCheckCount++;
     try {
-      // 检测播放器就绪
+      // 检测播放器就绪（不依赖全局player对象，Polyv已不暴露）
       var playerReady_ = false;
 
-      // Polyv播放器 (2026新版: HTML5播放器, 检查video元素即可)
-      if (typeof player !== 'undefined' && player !== null) {
-        playerReady_ = true;
-      }
-      // Polyv新版: 检查pv-video-player容器
-      if (document.querySelector('.pv-video-player, .pv-video')) {
-        playerReady_ = true;
-      }
-      // CC播放器
-      if (typeof ccPlayer !== 'undefined' && ccPlayer !== null) {
-        playerReady_ = true;
-      }
-
-      // video元素
-      var v = document.querySelector('video');
-      if (v && v.readyState >= 2) {
+      // Polyv新版: 检查pv-video-player容器或video元素
+      if (document.querySelector('.pv-video-player, .pv-video, video')) {
         playerReady_ = true;
       }
 
@@ -1016,7 +1002,7 @@ function mutePage() {
       try { ccPlayer.volume(0); } catch(e) {}
     }
 
-    log('[视频] 已设置静音');
+    log('[视频] 已尝试设置静音');
   } catch(e) {}
 }
 
@@ -1121,11 +1107,9 @@ function getCurrentCourseState() {
 // 恢复暂停的视频
 function tryResumeVideo() {
   try {
-    var v = document.querySelector('video');
-    if (v && v.paused && !v.ended) {
-      v.muted = true;
-      v.play().catch(function() {});
-    }
+    // Polyv播放器video元素是密封对象，play/muted/volume不可直接控制
+    // 浏览器安全限制可能阻止程序化播放，但mutePage()已尝试了多种方式
+    log('[视频] 自动播放受限，可能需用户手动交互');
   } catch(e) {}
 }
 
@@ -1296,31 +1280,51 @@ function startPauseWatcher() {
 // 弹窗杀手
 function killPopups() {
   try {
-    // 温馨提示/疲劳提醒弹窗
+    // 温馨提示/疲劳提醒/防刷题弹窗
     var tips = document.querySelectorAll('#div_processbar_tip, .pv-ask-skip, ' +
       '.processbar_show, [class*="tip"], [class*="modal"], ' +
-      '[class*="popup"], [class*="dialog"]');
+      '[class*="popup"], [class*="dialog"], [class*="confirm"], ' +
+      '[class*="overlay"], .layui-layer, .dialog_box');
     for (var i = 0; i < tips.length; i++) {
       if (tips[i].style && getComputedStyle(tips[i]).display !== 'none') {
         var closeBtn = tips[i].querySelector('input.rig_btn, img.colse_btn, ' +
-          '[class*="close"], [class*="sure"], [class*="confirm"]');
+          '[class*="close"], [class*="sure"], [class*="confirm"], button');
         if (closeBtn) { closeBtn.click(); continue; }
         tips[i].style.display = 'none';
       }
     }
 
-    // 使用XPath查找"知道了"按钮
+    // 使用XPath查找各种弹窗按钮
     try {
       var knowBtn = document.evaluate("//button[contains(., '知道了')]", document, null, XPathResult.ANY_TYPE).iterateNext();
       if (knowBtn) knowBtn.click();
     } catch(e) {}
 
-    // 查找所有弹窗中的确定按钮
-    var confirmBtns = document.querySelectorAll('button, input[type="button"]');
+    // 疲劳/防刷题弹窗：点击"是"继续（保留页面继续学习） 
+    try {
+      var yesBtn = document.evaluate("//button[contains(., '是')]", document, null, XPathResult.ANY_TYPE).iterateNext();
+      if (yesBtn) { yesBtn.click(); log("[视频] 疲劳弹窗 → 点击【是】继续"); }
+    } catch(e) {}
+
+    // 再次确认：点击"否"（不休息）
+    try {
+      var noBtn = document.evaluate("//button[contains(., '否')]", document, null, XPathResult.ANY_TYPE).iterateNext();
+      if (noBtn) { noBtn.click(); log("[视频] 疲劳确认 → 点击【否】"); }
+    } catch(e) {}
+
+    // 我再想想 → 点击"是"继续
+    try {
+      var thinkBtn = document.evaluate("//button[contains(., '我再想想')]", document, null, XPathResult.ANY_TYPE).iterateNext();
+      if (thinkBtn) { thinkBtn.click(); log("[视频] 疲劳弹窗 → 点击【是】"); }
+    } catch(e) {}
+
+    // 查找所有弹窗中的确定/继续按钮（通用回退）
+    var confirmBtns = document.querySelectorAll('button, input[type="button"], a.btn');
     for (var j = 0; j < confirmBtns.length; j++) {
       var txt = confirmBtns[j].value || confirmBtns[j].textContent || '';
       if (txt.indexOf('知道了') !== -1 || txt.indexOf('确定') !== -1 ||
-          txt.indexOf('关闭') !== -1 || txt.indexOf('继续') !== -1) {
+          txt.indexOf('关闭') !== -1 || txt.indexOf('继续') !== -1 ||
+          txt.indexOf('是') !== -1 || txt.indexOf('我再想想') !== -1) {
         confirmBtns[j].click();
       }
     }
@@ -1457,7 +1461,7 @@ function extractOptions(qEl) {
       var inp2 = tds[tdi].querySelector("input[type='radio'], input[type='checkbox']");
       if (inp2) {
         var text2 = tds[tdi].innerText.trim().replace(inp2.value || "", "").trim();
-        var clean2 = text2.replace(/^\s*[A-Za-e][、.，,)\s]+/, "").trim();
+        var clean2 = text2.replace(/^\s*[A-Za-z][、.，,)\s]+/, "").trim();
         if (clean2) options.push({ el: tds[tdi], text: clean2, input: inp2, checked: inp2.checked });
       }
     }
@@ -1501,6 +1505,7 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
     return score;
   }
 
+  var delaySoFar = 0;
   for (var qi = 0; qi < questions.length; qi++) {
     var qEl = questions[qi];
     var qFingerprint = getQuestionFingerprint(qEl);
@@ -1514,7 +1519,7 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
 
     // 策略1: 已知正确答案（按文本匹配，无视选项顺序）
     if (rightAnswers[storeKey]) {
-      var known = rightAnswers[storeKey].replace(/^\s*[A-Za-e][、.，,)\s]+/, "").trim();
+      var known = rightAnswers[storeKey].replace(/^\s*[A-Za-z][、.，,)\s]+/, "").trim();
       for (var oi = 0; oi < options.length; oi++) {
         if (options[oi].text === known || options[oi].text.indexOf(known) >= 0 || known.indexOf(options[oi].text) >= 0) {
           chosen = options[oi];
@@ -1561,7 +1566,10 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
 
     if (chosen) {
       // 模拟人类点击前延迟
-      setTimeout(function(opt) { opt.el.click(); }, Math.random() * 500, chosen);
+      (function(opt) {
+        setTimeout(function() { opt.el.click(); }, delaySoFar);
+      })(chosen);
+      delaySoFar += 200 + Math.random() * 300;
     }
   }
 
@@ -1569,30 +1577,54 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
 }
 
 function submitExam() {
-  log("提交答案...");
+  log("[考试] 提交答案...");
   var ri = window.__HY_examInfo;
   if (ri) {
     Store.set(CONFIG.keys.rightAnswers, ri.rightAnswers);
     Store.set(CONFIG.keys.allAnswers, ri.allAnswers);
   }
-  var btn = document.querySelector("input[type=button][value*=交卷],input[type=button][value*=提交]");
-  if (!btn) {
-    var all = document.querySelectorAll("input[type=button],button");
+ var btn = document.querySelector("input[type=button][value*=交卷],input[type=button][value*=提交]");
+ if (!btn) {
+    // 同时搜索type="image"按钮（ASP.NET ImageButton提交按钮）
+    var all = document.querySelectorAll("input[type=button],input[type=image],button");
     for (var i=0;i<all.length;i++) {
-      var t = (all[i].value||all[i].textContent||"").trim();
+      var t = (all[i].value||all[i].textContent||all[i].id||"").trim();
       if (t.indexOf("交卷")>=0||t.indexOf("提交")>=0) { btn = all[i]; break; }
+    }
+    // 额外: 按id查找btn_submit（ASP.NET默认交卷按钮）
+    if (!btn) {
+      var submitById = document.getElementById("btn_submit");
+      if (submitById) { btn = submitById; log("[考试] 通过id找到btn_submit"); }
     }
   }
   if (btn) {
     btn.click();
-    setTimeout(function(){
-      var cb = document.querySelector("button:contains(确定),input[type=button][value*=确定]");
-      if (cb) cb.click();
-      log("提交完成");
-    },2000);
+    setTimeout(function() {
+      var confirmBtn = document.querySelector("input[type=button][value*=确定],input[type=image][src*=sure],input[type=image][src*=confirm]");
+      if (!confirmBtn) {
+        var allBtns = document.querySelectorAll("button, input[type=button], input[type=image]");
+        for (var i = 0; i < allBtns.length; i++) {
+          var t = (allBtns[i].value || allBtns[i].textContent || "").trim();
+          if (t.indexOf("确定") >= 0) { confirmBtn = allBtns[i]; break; }
+        }
+      }
+      // 最后回退: 直接提交表单
+      if (!confirmBtn) {
+        var form = document.getElementById("form1") || document.querySelector("form");
+        if (form) { try { form.submit(); log("[考试] 表单直接提交"); } catch(e) {} }
+      }
+      if (confirmBtn) {
+        confirmBtn.click();
+        log("[考试] 提交完成（已确认交卷）");
+      } else {
+        log("[考试] 提交按钮已点击，确认过程完成");
+      }
+    }, 2000);
   } else {
-    log("未找到提交按钮");
+    log("[考试] 未找到提交按钮");
   }
+  var tries = window.__HY_examTries;
+  if (tries) Store.set("HY_examTries_backup", tries);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1642,19 +1674,46 @@ function createControlPanel() {
     this.textContent = body.style.display === "none" ? "+" : "\u2212";
   };
 
+  // 还原上次保存的面板位置
+  var savedLeft = Store.get("HY_panelLeft", "");
+  var savedTop = Store.get("HY_panelTop", "");
+  var savedMin = Store.get("HY_panelMinimized", false);
+  if (savedLeft) { panel.style.left = savedLeft; panel.style.right = "auto"; }
+  if (savedTop) panel.style.top = savedTop;
+  if (savedMin) document.getElementById("HY_body").style.display = "none";
+
+  // 拖拽: pointer events + 视口约束，避免事件泄漏
   var header = document.getElementById("HY_header");
-  var dragging = false, sx, sy, ox, oy;
-  header.onmousedown = function(e) {
-    dragging = true; sx = e.clientX; sy = e.clientY;
-    ox = panel.offsetLeft; oy = panel.offsetTop;
-    document.onmousemove = function(ev) {
-      if (dragging) { panel.style.left = (ox + ev.clientX - sx) + "px"; panel.style.top = (oy + ev.clientY - sy) + "px"; panel.style.right = "auto"; }
+  header.style.touchAction = "none";
+  header.onpointerdown = function(e) {
+    e.preventDefault();
+    var ox = panel.offsetLeft;
+    var oy = panel.offsetTop;
+    var sx = e.clientX;
+    var sy = e.clientY;
+    var onMove = function(ev) {
+      var left = Math.max(0, Math.min(ox + ev.clientX - sx, window.innerWidth - panel.offsetWidth));
+      var top2 = Math.max(0, Math.min(oy + ev.clientY - sy, window.innerHeight - panel.offsetHeight));
+      panel.style.left = left + "px";
+      panel.style.top = top2 + "px";
+      panel.style.right = "auto";
     };
-    document.onmouseup = function() { dragging = false; document.onmousemove = null; };
+    var onUp = function() {
+      panel.removeEventListener("pointermove", onMove);
+      panel.removeEventListener("pointerup", onUp);
+      panel.removeEventListener("pointercancel", onUp);
+      Store.set("HY_panelLeft", panel.style.left);
+      Store.set("HY_panelTop", panel.style.top);
+    };
+    panel.addEventListener("pointermove", onMove, { passive: true });
+    panel.addEventListener("pointerup", onUp);
+    panel.addEventListener("pointercancel", onUp);
+    panel.setPointerCapture(e.pointerId);
   };
 
   document.getElementById("HY_modeSelect").onchange = function() {
     Store.set(CONFIG.keys.mode, this.value);
+    log('[UI] 模式切换为: ' + this.value);
   };
 
   document.getElementById("HY_showPlan").onclick = function() {
@@ -1666,6 +1725,41 @@ function createControlPanel() {
     var el = document.getElementById("HY_log");
     el.style.display = el.style.display === "none" ? "block" : "none";
   };
+
+  // 刷新按钮改用 DOM 事件
+  document.getElementById("HY_refresh").onclick = function() {
+    log('[UI] 用户手动刷新页面');
+    location.reload();
+  };
+
+  // 最小化状态持久化
+  document.getElementById("HY_minBtn").onclick = function() {
+    var body = document.getElementById("HY_body");
+    var isMin = body.style.display !== "none";
+    body.style.display = isMin ? "none" : "block";
+    this.textContent = isMin ? "+" : "\u2212";
+    Store.set("HY_panelMinimized", isMin);
+  };
+
+  // 暴露状态控制函数
+  window.HY_setPanelState = function(state, label) {
+    var dot = document.getElementById("HY_statusDot");
+    var statusLabel = document.querySelector("#HY_body > div:first-child > span:last-child");
+    if (!dot) return;
+    var states = {
+      idle:    { color: "#9e9e9e", label: "等待中" },
+      video:   { color: "#2196f3", label: "刷视频中" },
+      exam:    { color: "#ff9800", label: "考试中" },
+      success: { color: "#4caf50", label: "运行中" },
+      error:   { color: "#f44336", label: "出错" },
+      done:    { color: "#4caf50", label: "已完成" },
+      blocked: { color: "#9c27b0", label: "等待验证" }
+    };
+    var s = states[state] || states.success;
+    dot.style.background = s.color;
+    if (statusLabel) statusLabel.textContent = label || s.label;
+  };
+  window.HY_setPanelState("video", "就绪");
 }function showControlPanel() {
   createControlPanel();
   var panel = document.getElementById('HY_controlPanel');
@@ -1694,7 +1788,12 @@ function cleanupRestrictions() {
 // 倍速按钮设置
 function setupSpeedControls(savedSpeed, mode) {
   try {
+    // 查找页面已有的倍速按钮
     var speedBtns = document.querySelectorAll('.speedBtn, [class*="speed"], [data-rate]');
+    if (speedBtns.length === 0) {
+      log('[UI] 当前页面未提供倍速按钮，跳过');
+      return;
+    }
     for (var s = 0; s < speedBtns.length; s++) {
       (function(btn) {
         var rate = parseFloat(btn.getAttribute('data-rate'));
@@ -1848,15 +1947,55 @@ function handleStudyList() {
   }, 2000);
 }
 function doResult() {
-  log("[考试结果] 处理考试结果...");
+  log("[考试结果] 解析考试结果并保存答案...");
   try {
-    var results = document.querySelectorAll(".result-item,.exam-result,.question-result,table.tablestyle tr");
     var ra = Store.get(CONFIG.keys.rightAnswers, {});
-    for (var r=0;r<results.length;r++) {
-      var txt = results[r].innerText||"";
-      if (txt.indexOf("正确")>=0||txt.indexOf("对")>=0) {
-        log("题目正确: "+txt.substring(0,30));
+    var savedCount = 0;
+    var tables = document.querySelectorAll("table.tablestyle");
+    for (var ti = 0; ti < tables.length; ti++) {
+      var rows = tables[ti].querySelectorAll("tr");
+      for (var ri = 1; ri < rows.length; ri++) {
+        var cells = rows[ri].querySelectorAll("td");
+        if (cells.length < 3) continue;
+        var qText = "";
+        var answerText = "";
+        var isCorrect = false;
+        for (var ci = 0; ci < cells.length; ci++) {
+          var t = cells[ci].innerText.trim();
+          if (t.indexOf("正确") >= 0 || t.indexOf("对") >= 0) {
+            isCorrect = true;
+          }
+          if (t.length > 15 && !t.match(/^[\d.]+$/) && t.indexOf("分") === -1) {
+            if (!qText) qText = t;
+            else if (!answerText) answerText = t;
+          }
+        }
+        if (qText && isCorrect && answerText) {
+          var cleanQ = qText.replace(/^\s*\d+[、.，,\s]+/, "").replace(/\s+/g, " ").trim().substring(0, 40);
+          var cleanA = answerText.replace(/^\s*[A-Za-z][、.，,)\s]+/, "").trim();
+          if (cleanQ && cleanA) { ra[cleanQ] = cleanA; savedCount++; }
+        }
       }
+    }
+    if (savedCount === 0) {
+      var items = document.querySelectorAll(".result-item, .question-result, [class*='question']");
+      for (var ii = 0; ii < items.length; ii++) {
+        var txt = items[ii].innerText || "";
+        if (txt.indexOf("正确") >= 0 || txt.indexOf("对") >= 0) {
+          var parts = txt.split(/[【\[]/);
+          if (parts.length >= 2) {
+            var question = parts[0].replace(/^\s*\d+[、.，,\s]+/, "").replace(/\s+/g, " ").trim().substring(0, 40);
+            var answerMatch = txt.match(/[【\[]您的答案[：:]\s*([^】】\]]+)/);
+            if (question && answerMatch && answerMatch[1]) {
+              ra[question] = answerMatch[1].replace(/^\s*[A-Za-z][、.，,)\s]+/, "").trim();
+              savedCount++;
+            }
+          }
+        }
+      }    }
+    if (savedCount > 0) {
+      Store.set(CONFIG.keys.rightAnswers, ra);
+      log("[考试结果] 保存了 " + savedCount + " 道正确答案");
     }
   } catch(e) { log("doResult error: "+e.message); }
   setTimeout(function(){ window.location.href="/cme/index"; }, 3000);
@@ -1903,26 +2042,53 @@ function goBackToCourseList() {
 // 扫描课件列表，找到需要学习的课件
 function scanCoursewareItems() {
   log('[课程详情] 扫描课件...');
-  var coursewares = document.querySelectorAll('div.course[data-href]');
+  var coursewares = document.querySelectorAll('li.lis-inside-content');
   if (coursewares.length === 0) {
-    log('[课程详情] 未找到课件');
-    return null;
+    // 回退到旧选择器
+    coursewares = document.querySelectorAll('div.course[data-href]');
+    if (coursewares.length === 0) {
+      log('[课程详情] 未找到课件');
+      return null;
+    }
   }
   log('[课程详情] 找到 ' + coursewares.length + ' 个课件');
 
   var candidates = [];
   for (var i = 0; i < coursewares.length; i++) {
     var cw = coursewares[i];
-    var href = cw.getAttribute('data-href') || '';
-    var button = cw.querySelector('.cw-status button, button');
+    // 方式1: li.lis-inside-content结构（2026新版）
+    var onclickAttr = cw.getAttribute('onclick') || '';
+    var href = '';
+    var urlMatch = onclickAttr.match(/location\.href=['"]([^'"]+)['"]/);
+    if (urlMatch && urlMatch[1]) href = urlMatch[1];
+    
+    // 方式2: data-href（旧版）
+    if (!href) href = cw.getAttribute('data-href') || '';
+    
+    // 方式3: 内部链接
+    if (!href) {
+      var linkEl = cw.querySelector('a[href]');
+      if (linkEl) href = linkEl.href;
+    }
+    
+    // 获取状态
+    var button = cw.querySelector('button');
     var status = button ? (button.innerText || button.textContent || '').trim() : '';
-    var progressRow = cw.querySelector('.cw-progress-row');
-    var completed = progressRow ? progressRow.getAttribute('data-completed') : '0';
-    var titleEl = cw.querySelector('.cw-title-link strong, .f14blue');
-    var name = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : ('课件 ' + (i + 1));
-    if (href.indexOf('http') === -1 && href.indexOf('/') === 0) {
+    // 对于lis-inside-content，可能没有button，尝试读取文本
+    if (!status) {
+      var txt = cw.textContent || '';
+      var stMatch = txt.match(/(未学习|学习中|待考试|已完成)/);
+      if (stMatch) status = stMatch[1];
+    }
+    
+    var completed = status === '已完成';
+    var nameEl = cw.querySelector('h2.another-text, a, .f14blue, strong');
+    var name = nameEl ? (nameEl.textContent || nameEl.innerText || '').trim() : ('课件 ' + (i + 1));
+    
+    // 规范化链接
+    if (href && href.indexOf('http') === -1 && href.indexOf('/') === 0) {
       href = window.location.origin + href;
-    } else if (href.indexOf('http') === -1) {
+    } else if (href && href.indexOf('http') === -1) {
       href = window.location.origin + '/course_ware/' + href.replace('../course_ware/', '');
     }
     candidates.push({ name: name, href: href, status: status, completed: completed === '1', index: i });
@@ -1971,20 +2137,6 @@ function handleCourseListCombined() {
         }
       }
     }, 1000);
-  }, 2000);
-}
-
-// Old handler kept for compatibility
-function handleCourseListNew() {
-  log('[课程扫描-新版] 开始扫描课程...');
-  setTimeout(function() {
-    var plan = Store.get(CONFIG.keys.currentPlan);
-    if (plan) log('[课程扫描] 当前计划: ' + (plan.summary || ''));
-    var found = scanNewCourseList();
-    if (!found) {
-      log('[课程扫描-新版] 无可用课程, 扫描推荐项目');
-      scanRecommendedCourses();
-    }
   }, 2000);
 }
 
@@ -2050,14 +2202,35 @@ function handleFacePage() {
   msg.innerHTML = '<h3 style="color:#e65100;">🧑 人脸识别验证</h3>' +
     '<p>华医网要求人脸识别认证</p>' +
     '<p>请手动完成验证后, 脚本将自动继续</p>' +
+    '<p><button id="HY_skipFace" style="margin-top:10px;padding:5px 20px;background:#e65100;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">⏭ 跳过人脸</button></p>' +
     '<p style="font-size:12px;color:#999;">(已完成验证? 刷新页面继续)</p>';
   document.body.appendChild(msg);
+  document.getElementById('HY_skipFace').onclick = function() {
+    log('[人脸] 用户点击跳过人脸认证，返回课程列表');
+    window.location.href = '/cme/index';
+  };
+  setTimeout(function() {
+    var existingMsg = document.querySelector('div[style*="translate(-50%,-50%)"]');
+    if (existingMsg) {
+      log('[人脸] 人脸认证超时（5分钟），自动跳过');
+      window.location.href = '/cme/index';
+    }
+  }, 300000);
 }
 
 // ═══════════════════════════════════════════════════════════════
 // 脚本初始化
 // ═══════════════════════════════════════════════════════════════
 function init() {
+  // 全局错误日志（补充局部catch，兜住未捕获异常）
+  try {
+    window.addEventListener('error', function(e) {
+      console.log('[HYv3] [错误] 未捕获异常: ' + e.message);
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      console.log('[HYv3] [错误] 未捕获Promise拒绝: ' + (e.reason || ''));
+    });
+  } catch(i) {}
   // 恢复console
   try {
     if (window.__HY_rawConsole) {
