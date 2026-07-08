@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      3.8.1
+// @version      4.0.0
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -113,7 +113,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.8.1";
+var HY_VERSION = "4.0.0";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -550,10 +550,8 @@ var VueCourseScanner = {
   // 扫描学分信息 - 从cme.aspx表格
   scanCreditsFromASP: function() {
     try {
-      // 检测表格类型: study_info_list.aspx=8列(含状态/进度), cme.aspx=4列(操作按钮)
       var thead = document.querySelector('table thead');
       if (!thead) return null;
-
       var thCount = thead.querySelectorAll('th').length;
       var isStudyInfo = thCount >= 6;
       
@@ -567,63 +565,81 @@ var VueCourseScanner = {
         var cells = rows[ri].querySelectorAll('td');
         if (cells.length < 4) continue;
         
-        // 第1列: 项目名称(含链接)
+        // Col 0: 项目名称 (with link)
         var nameEl = cells[0].querySelector('a');
         var name = nameEl ? nameEl.textContent.trim() : '';
         var link = nameEl ? nameEl.href : '';
         
-        // 第3列: 学分类型(如"国家级 2.0学分"或"自治区级公需课5分")
+        // Col 2: 学分类型
         var creditText = cells.length >= 3 ? (cells[2].textContent || '').trim() : '';
         var cm = creditText.match(/([\d.]+)\s*学分/) || creditText.match(/([\d.]+)分/);
         var credit = cm ? parseFloat(cm[1]) : 0;
         if (credit === 0) credit = 1;
-        
-        // 判断是否公需课
         var isPublic = creditText.indexOf('公需') >= 0 || name.indexOf('公需') >= 0;
         
-        var status = '未学习';
-        if (isStudyInfo) {
-          status = cells.length >= 4 ? (cells[3].textContent || '').trim() : '未学习';
-        } else {
-          // cme.aspx: 第4列=操作按钮, 从按钮文本推断状态
-          if (cells.length >= 4) {
-            var btn = cells[3].querySelector('input[type="button"], button');
-            if (btn) {
-              var bt = (btn.value || btn.textContent || '').trim();
-              if (bt.indexOf('继续') >= 0) { status = '学习中'; }
-              else if (bt.indexOf('证书') >= 0 || bt.indexOf('申请') >= 0) { status = '学习完毕'; }
-            }
+        // Col 3: 学习状态
+        var status = isStudyInfo ? (cells[3].textContent || '').trim() : '未学习';
+        if (!isStudyInfo && cells.length >= 4) {
+          var btn0 = cells[3].querySelector('input[type="button"], button');
+          if (btn0) {
+            var bt0 = (btn0.value || btn0.textContent || '').trim();
+            if (bt0.indexOf('继续') >= 0) status = '学习中';
+            else if (bt0.indexOf('证书') >= 0 || bt0.indexOf('申请') >= 0) status = '学习完毕';
           }
         }
         
-        // 第7列: 学习进度(如"7/7", "0/12")
+        // Col 6: 学习进度 (e.g. "7/7", "0/12", "3/5")
         var progress = '';
-        if (cells.length >= 7) {
-          progress = (cells[6].textContent || '').trim();
+        if (cells.length >= 7) progress = (cells[6].textContent || '').trim();
+        
+        // Col 7: 操作 (button text: "申请证书"/"继续学习" or empty)
+        var action = '';
+        if (cells.length >= 8) {
+          var actionBtn = cells[7].querySelector('input[type="button"], button');
+          if (actionBtn) action = (actionBtn.value || actionBtn.textContent || '').trim();
         }
         
-        var completed = status === '已申请'; // Only '已申请' means truly done
-        // '学习完毕' means coursewares done but certificate not yet applied
-        var isInProgress = status === '学习中';
+        // Determine completion state:
+        // "已申请" = fully complete, credits received
+        // "学习完毕" + "申请证书" = coursewares done, just need to apply certificate
+        // "学习完毕" + no button = may need exam
+        // "学习中" + "继续学习" = not finished, need to continue
+        var trulyDone = (status === '已申请');
+        var needsCertificate = (status === '学习完毕' && action.indexOf('证书') >= 0);
+        var needsExam = (status === '学习完毕' && action === '');
+        var needsContinue = (status === '学习中');
         
-        if (completed) {
+        if (trulyDone) {
           result.total += credit;
           if (isPublic) result.public += credit;
           else result.other += credit;
           result.done += credit;
-        } else if (isInProgress) {
-          result.inProgress += credit;
         }
+        
+        // Parse progress
+        var pm = progress.match(/(\d+)\/(\d+)/);
+        var pDone = pm ? parseInt(pm[1]) : 0;
+        var pTotal = pm ? parseInt(pm[2]) : 0;
+        var pPct = pTotal > 0 ? Math.round(pDone / pTotal * 100) : 0;
         
         result.courses.push({
           name: name,
           credit: credit,
           status: status,
           isPublic: isPublic,
-          completed: completed,
+          completed: trulyDone,
+          needsCertificate: needsCertificate,
+          needsExam: needsExam,
+          needsContinue: needsContinue,
           link: link,
-          progress: progress
+          progress: progress,
+          progressDone: pDone,
+          progressTotal: pTotal,
+          progressPct: pPct,
+          action: action
         });
+        
+        log('[学分] ' + name.substring(0, 20) + ' | ' + status + ' | ' + progress + ' | ' + (action || '无操作'));
       }
       
       return result;
@@ -654,7 +670,6 @@ var CreditPlanner = {
     if (tableData && tableData.courses && tableData.courses.length > 0) {
       log('[学分] 从学习记录表解析到 ' + tableData.courses.length + ' 门课');
       courses = tableData.courses.map(function(c) {
-        // Parse progress like '7/7', '0/12', '3/5'
         var pm = (c.progress || '').match(/(\d+)\/(\d+)/);
         var pDone = pm ? parseInt(pm[1]) : 0;
         var pTotal = pm ? parseInt(pm[2]) : 0;
@@ -666,10 +681,14 @@ var CreditPlanner = {
           status: c.status,
           isPublic: c.isPublic,
           completed: c.completed,
+          needsCertificate: c.needsCertificate || false,
+          needsExam: c.needsExam || false,
+          needsContinue: c.needsContinue || false,
           progress: c.progress || '',
           progressDone: pDone,
           progressTotal: pTotal,
-          progressPct: pPct
+          progressPct: pPct,
+          action: c.action || ''
         };
       });
     } else {
@@ -724,25 +743,30 @@ var CreditPlanner = {
     // 从未完成课程中筛选 (包括'学习完毕'但未申请证书的)
     var unfinished = analysis.courses.filter(function(c) { return !c.completed; });
     
-    // 智能选课排序 (v3.7.0): 最少 effort 获取最多学分
-    // 优先级: 学习完毕(100%, 只需考试) > 高进度(60%+) > 中进度(20%+) > 低进度(>0%) > 学习中(0%) > 未学习 > 其他
+    // v4.0.0: Smart selection based on ACTION needed (from study record col 7)
+    // Priority: needsCertificate (just click apply, instant) > needsExam > high progress > low progress
     unfinished.sort(function(a, b) {
-      // 1. '学习完毕' = 100% progress, just need exam/cert = highest priority
-      var aDone = (a.status === '学习完毕') ? 1 : 0;
-      var bDone = (b.status === '学习完毕') ? 1 : 0;
-      if (aDone !== bDone) return bDone - aDone; // 学习完毕 first
+      // 1. needsCertificate = just apply certificate, fastest action
+      var aCert = a.needsCertificate ? 0 : 1;
+      var bCert = b.needsCertificate ? 0 : 1;
+      if (aCert !== bCert) return aCert - bCert;
       
-      // 2. Higher progress % = closer to completion = higher priority
+      // 2. needsExam = need to take exam, second fastest
+      var aExam = a.needsExam ? 0 : 1;
+      var bExam = b.needsExam ? 0 : 1;
+      if (aExam !== bExam) return aExam - bExam;
+      
+      // 3. Higher progress % = closer to completion
       var aPct = a.progressPct || 0;
       var bPct = b.progressPct || 0;
-      if (aPct !== bPct) return bPct - aPct; // Higher % first
+      if (aPct !== bPct) return bPct - aPct;
       
-      // 3. Same % = fewer remaining coursewares = faster to finish
+      // 4. Fewer remaining coursewares = faster to finish
       var aRem = (a.progressTotal || 999) - (a.progressDone || 0);
       var bRem = (b.progressTotal || 999) - (b.progressDone || 0);
-      if (aRem !== bRem) return aRem - bRem; // Fewer remaining first
+      if (aRem !== bRem) return aRem - bRem;
       
-      // 4. Same remaining = higher credit = better value
+      // 5. Higher credit = better value
       return b.credit - a.credit;
     });
     
@@ -770,8 +794,12 @@ var CreditPlanner = {
         status: c.status,
         isPublic: c.isPublic,
         completed: false,
+        needsCertificate: c.needsCertificate || false,
+        needsExam: c.needsExam || false,
+        needsContinue: c.needsContinue || false,
         progress: c.progress || '',
-        progressPct: c.progressPct || 0
+        progressPct: c.progressPct || 0,
+        action: c.action || ''
       });
       
       acc += c.credit;
@@ -861,8 +889,10 @@ var SmartEngine = {
     if (!plan || !plan.tasks) { log('[引擎] 无计划'); return; }
     log('[引擎] 计划: ' + plan.tasks.length + ' 个任务');
     for (var i = 0; i < plan.tasks.length; i++) {
+      var action = plan.tasks[i].action || '';
       var prog = plan.tasks[i].progressPct ? ' [' + plan.tasks[i].progressPct + '%]' : '';
-      log('[引擎]   #' + (i+1) + ' ' + plan.tasks[i].name + ' (' + plan.tasks[i].credit + '分' + (plan.tasks[i].status === '学习完毕' ? ', 待考试' : '') + ')' + prog);
+      var actStr = action ? ' (' + action + ')' : (plan.tasks[i].status === '学习完毕' ? ' (待考试)' : '');
+      log('[引擎]   #' + (i+1) + ' ' + plan.tasks[i].name + ' (' + plan.tasks[i].credit + '分' + actStr + ')' + prog);
     }
     var idx = Store.g(HY_PLAN_IDX, 0);
     log('[引擎] 当前进度: ' + idx + '/' + plan.tasks.length);
