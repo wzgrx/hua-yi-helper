@@ -39,9 +39,9 @@
 // ═══════════════════════════════════════════════════════════════
 // 更新日志
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.0.0";
+var HY_VERSION = "3.0.2";
 var HY_UPDATE_DATE = "2026.7.8";
-var HY_UPDATE_LOG = "v3.0.0 完全重构: 智能学分规划|三端适配|增强反作弊|Win11原生支持";
+var HY_UPDATE_LOG = "v3.0.2 考试模块升级: 指纹识别|文本匹配|防随机化";
 var HY_HISTORY = [
   "v3.0.0 (2026.7.8) - 完全重构: 智能学分规划器支持公需5+其他20=25自动规划",
   "  · 新增 SmartCreditPlanner: 自动分析学分缺口、计算最优课程组合",
@@ -1317,309 +1317,239 @@ function killPopups() {
 // 正确答案记忆: 保存在GM存储中, 下次自动使用
 // ═══════════════════════════════════════════════════════════════
 function doExam() {
-  log('[考试] 开始答题...');
-
-  // 清除页面限制
+  log("[考试] 开始答题...");
   cleanupRestrictions();
 
-  // 读取已知答案
   var rightAnswers = Store.get(CONFIG.keys.rightAnswers, {});
   var allAnswers = Store.get(CONFIG.keys.allAnswers, {});
   var currentTries = {};
   var round = 1;
-  var maxRounds = 6;
+  var maxRounds = 8;
 
-  // 轮询等待题目加载
   var retry = 0;
   function waitForQuestions() {
-    var questions = document.querySelectorAll('table.tablestyle');
+    var questions = findQuestions();
     if (questions.length > 0) {
-      log('[考试] 题目已加载 (' + questions.length + '道)');
+      log("[考试] 题目已加载 (" + questions.length + "道)");
       startTestRound();
     } else if (retry < 30) {
       retry++;
       setTimeout(waitForQuestions, 500);
     } else {
-      log('[考试] 题目加载超时, 强制尝试');
+      log("[考试] 题目加载超时, 强制尝试");
       startTestRound();
     }
   }
 
   function startTestRound() {
     answerQuestions(rightAnswers, allAnswers, currentTries, round);
-
-    // 延迟后自动提交
-    log('[考试] 第' + round + '轮答题完成, ' + (CONFIG.delays.submitTime/1000) + '秒后提交');
-    setTimeout(function() {
-      submitExam();
-    }, randDelay(CONFIG.delays.submitTime));
+    var delay = 3000 + Math.floor(Math.random() * 5000);
+    log("[考试] 第" + round + "轮答题完成, " + Math.round(delay/1000) + "秒后提交");
+    setTimeout(function() { submitExam(); }, delay);
   }
 
   waitForQuestions();
 
-  // 存储考试信息供结果页使用
-  window.__HY_examInfo = {
-    rightAnswers: rightAnswers,
-    allAnswers: allAnswers,
-    currentTries: currentTries,
-    round: round,
-    maxRounds: maxRounds
-  };
+  window.__HY_examInfo = { rightAnswers: rightAnswers, allAnswers: allAnswers, currentTries: currentTries, round: round, maxRounds: maxRounds };
 }
 
-// 答题核心算法
-function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
-  var tables = document.querySelectorAll('table.tablestyle');
-  log('[考试] 处理 ' + tables.length + ' 道题目, 第' + round + '轮');
+// 智能查找题目 - 支持多种DOM结构
+function findQuestions() {
+  // 策略1: 传统 tablestyle 表格
+  var tables = document.querySelectorAll("table.tablestyle, table[class*='tablestyle']");
+  if (tables.length > 0) return tables;
 
-  // 答案评分策略
-  function scoreOption(text) {
+  // 策略2: 含有题目文本的div/question容器
+  var divs = document.querySelectorAll("div[class*='question'], div[class*='exam'], div.q_item");
+  if (divs.length > 0) return divs;
+
+  // 策略3: 含有radio/checkbox的表格或div
+  var radios = document.querySelectorAll("input[type='radio'], input[type='checkbox']");
+  if (radios.length > 0) {
+    // Find the common parent container for each radio group
+    var containers = [];
+    var seen = new Set();
+    for (var ri = 0; ri < radios.length; ri++) {
+      var parent = radios[ri].closest("table, div[class*='item'], div[class*='q'], li");
+      if (parent && !seen.has(parent)) { seen.add(parent); containers.push(parent); }
+    }
+    if (containers.length > 0) return containers;
+  }
+
+  return [];
+}
+
+// 提取题目标识 - 用于答案匹配（处理随机序号）
+function getQuestionFingerprint(qEl) {
+  var texts = [];
+
+  // 方式1: .q_name
+  var nameEl = qEl.querySelector(".q_name, .question, td[class*='q'], [class*='q_name']");
+  if (nameEl) texts.push(nameEl.innerText);
+
+  // 方式2: 表格前几个td
+  var cells = qEl.querySelectorAll("td");
+  if (cells.length > 0) {
+    for (var ci = 0; ci < Math.min(cells.length, 2); ci++) {
+      var t = cells[ci].innerText.trim();
+      if (t.length > 5) texts.push(t);
+    }
+  }
+
+  // 方式3: 整个容器的文本（用于fallback）
+  texts.push(qEl.innerText || "");
+
+  // 取最长文本作为指纹（去除数字前缀和空格）
+  var best = "";
+  for (var ti = 0; ti < texts.length; ti++) {
+    if (texts[ti].length > best.length) best = texts[ti];
+  }
+  return best.replace(/^\s*\d+[、.，,\s]+/, "").replace(/\s+/g, " ").trim();
+}
+
+// 提取选项列表
+function extractOptions(qEl) {
+  var options = [];
+
+  // 策略1: label中的radio/checkbox
+  var labels = qEl.querySelectorAll("label");
+  for (var li = 0; li < labels.length; li++) {
+    var inp = labels[li].querySelector("input[type='radio'], input[type='checkbox']");
+    if (inp) {
+      var raw = labels[li].innerText.trim();
+      var clean = raw.replace(/^\s*[A-Za-z][、.，,)\s]+/, "").trim();
+      if (clean) options.push({ el: labels[li], text: clean, input: inp, checked: inp.checked });
+    }
+  }
+
+  // 策略2: 直接找radio/checkbox的父元素
+  if (options.length === 0) {
+    var inputs = qEl.querySelectorAll("input[type='radio'], input[type='checkbox']");
+    for (var ii = 0; ii < inputs.length; ii++) {
+      var inp = inputs[ii];
+      var parent = inp.parentElement;
+      var text = (parent.innerText || parent.textContent || "").trim().replace(inp.value || "", "").trim();
+      var clean = text.replace(/^\s*[A-Za-z][、.，,)\s]+/, "").trim();
+      if (clean) options.push({ el: parent, text: clean, input: inp, checked: inp.checked });
+    }
+  }
+
+  // 策略3: td中的radio
+  if (options.length === 0) {
+    var tds = qEl.querySelectorAll("td");
+    for (var tdi = 0; tdi < tds.length; tdi++) {
+      var inp2 = tds[tdi].querySelector("input[type='radio'], input[type='checkbox']");
+      if (inp2) {
+        var text2 = tds[tdi].innerText.trim().replace(inp2.value || "", "").trim();
+        var clean2 = text2.replace(/^\s*[A-Za-e][、.，,)\s]+/, "").trim();
+        if (clean2) options.push({ el: tds[tdi], text: clean2, input: inp2, checked: inp2.checked });
+      }
+    }
+  }
+
+  return options;
+}
+
+// 答题核心 - 支持随机题目序号和选项顺序
+function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
+  var questions = findQuestions();
+  log("[考试] 处理 " + questions.length + " 道题目, 第" + round + "轮");
+
+  // 智能评估选项（完全不依赖云端API）
+  function smartScore(text, qText) {
     var score = 0;
-    if (/以上都(是|对|正)/.test(text) || /以上均是/.test(text) ||
-        /^(全部|所有以上)/.test(text)) score += 10;
-    if (/都不(是|对|正)/.test(text) || /以上都不/.test(text)) score -= 10;
-    if (/不包括/.test(text) || /错误/.test(text) || /不正确/.test(text)) score -= 3;
-    if (text.length > 15) score += 1; // 长答案通常更准确
-    if (/是|正确|对/.test(text) && text.length < 5) score += 1;
-    if (/否|不是|错误|不对/.test(text) && text.length < 5) score -= 1;
+    // 正面关键词加分
+    if (/以上都(是|对|正|正确)/.test(text)) score += 15;
+    if (/以上均(是|对|正确|包括)/.test(text)) score += 15;
+    if (/^(全部|所有|凡是)/.test(text)) score += 10;
+    if (/是|正确|对|可以|应该|需要/.test(text) && text.length < 8) score += 3;
+    if (/必须|一定|肯定|必然/.test(text)) score += 2;
+
+    // 负面关键词减分
+    if (/都不(是|对|正|正确)/.test(text)) score -= 15;
+    if (/以上都不(是|对)/.test(text)) score -= 15;
+    if (/不正确|错误|不是|不可以/.test(text)) score -= 5;
+    if (/不包括|除[了]?/.test(text)) score -= 3;
+    if (/否|没有|无需|不必/.test(text)) score -= 2;
+
+    // 长的详细答案通常更可能是正确答案（在医学考试中）
+    if (text.length > 20) score += 2;
+    if (text.length > 40) score += 2;
+
+    // 包含数字、剂量、百分比等具体信息加分
+    if (/\d+/.test(text)) score += 2;
+
+    // 包含否定词可能更准确（在医学考试中，绝对化的表述往往错误）
+    if (/绝不|严禁|禁忌|禁止/.test(text)) score -= 2;
+
     return score;
   }
 
-  for (var i = 0; i < tables.length; i++) {
-    var qEl = tables[i].querySelector('.q_name, .question, td[class*="q"]');
-    if (!qEl) continue;
+  for (var qi = 0; qi < questions.length; qi++) {
+    var qEl = questions[qi];
+    var qFingerprint = getQuestionFingerprint(qEl);
+    var options = extractOptions(qEl);
+    if (options.length === 0 || !qFingerprint) continue;
 
-    // 提取题目文本
-    var qText = qEl.innerText.replace(/^\d+[、.，,]\s*/, '').replace(/\s*/g, '').trim();
-    if (!qText) continue;
+    // 使用指纹的前40个字符作为存储键（足够长且避免过长）
+    var storeKey = qFingerprint.substring(0, 40);
 
-    // 提取选项
-    var labels = tables[i].querySelectorAll('label');
-    var options = [];
-
-    for (var li = 0; li < labels.length; li++) {
-      var inp = labels[li].querySelector('input[type="radio"], input[type="checkbox"]');
-      if (inp) {
-        var raw = labels[li].innerText.trim();
-        var clean = raw.replace(/^\s*[A-Ea-e][、.，,)\s]\s*/, '').trim();
-        if (clean) {
-          options.push({ el: labels[li], text: clean, raw: raw });
-        }
-      }
-    }
-
-    if (options.length === 0) continue;
-
-    // 选择答案
     var chosen = null;
 
-    // 策略1: 已知正确答案
-    if (rightAnswers[qText]) {
-      var known = rightAnswers[qText].replace(/^\s*[A-Ea-e][、.，,)\s]\s*/, '').trim();
+    // 策略1: 已知正确答案（按文本匹配，无视选项顺序）
+    if (rightAnswers[storeKey]) {
+      var known = rightAnswers[storeKey].replace(/^\s*[A-Za-e][、.，,)\s]+/, "").trim();
       for (var oi = 0; oi < options.length; oi++) {
-        if (options[oi].text === known) {
+        if (options[oi].text === known || options[oi].text.indexOf(known) >= 0 || known.indexOf(options[oi].text) >= 0) {
           chosen = options[oi];
-          log('[考试] ✅ 使用记忆答案: ' + known.substring(0, 20));
+          log("[考试] ✅ 已知答案: " + known.substring(0, 20));
           break;
         }
       }
+      // 模糊匹配: 如果精确没找到, 尝试包含匹配
+      if (!chosen) {
+        for (var oi2 = 0; oi2 < options.length; oi2++) {
+          var text1 = options[oi2].text.replace(/\s+/g, "");
+          var text2 = known.replace(/\s+/g, "");
+          if (text1.indexOf(text2) >= 0 || text2.indexOf(text1) >= 0) {
+            chosen = options[oi2];
+            break;
+          }
+        }
+      }
     }
 
-    // 策略2: 试错 - 从未尝试过的选项中选择
+    // 策略2: 试错 - 从未尝试过的选项中选择评分最高的
     if (!chosen) {
-      var tried = (currentTries[qText] || []);
-      var candidates = [];
-      for (var ci = 0; ci < options.length; ci++) {
-        var alreadyTried = false;
-        for (var cj = 0; cj < tried.length; cj++) {
-          if (tried[cj] === options[ci].text) { alreadyTried = true; break; }
-        }
-        if (!alreadyTried) candidates.push(options[ci]);
-      }
+      var tried = currentTries[storeKey] || [];
+      var candidates = options.filter(function(o) { return !tried.includes(o.text); });
 
       if (candidates.length > 0) {
-        // 按评分排序
+        // 评分排序
         candidates.sort(function(a, b) {
-          var d = scoreOption(b.text) - scoreOption(a.text);
-          return d !== 0 ? d : Math.random() - 0.5;
+          var sa = smartScore(a.text, qFingerprint);
+          var sb = smartScore(b.text, qFingerprint);
+          return sb - sa || Math.random() - 0.5;
         });
         chosen = candidates[0];
         tried.push(chosen.text);
-        currentTries[qText] = tried;
-        log('[考试] 🔄 试错: ' + chosen.text.substring(0, 20));
+        currentTries[storeKey] = tried;
+        log("[考试] 🔄 试错: " + chosen.text.substring(0, 20));
       } else if (options.length > 0) {
-        // 全部试过了, 重新开始
+        // 全部试过了, 随机选 (重置)
         chosen = options[Math.floor(Math.random() * options.length)];
-        currentTries[qText] = [chosen.text];
-        log('[考试] 🔄 重置试错: ' + chosen.text.substring(0, 20));
+        currentTries[storeKey] = [chosen.text];
+        log("[考试] ♻️ 重置试错");
       }
     }
 
-    // 点击选中
     if (chosen) {
-      chosen.el.click();
+      // 模拟人类点击前延迟
+      setTimeout(function(opt) { opt.el.click(); }, Math.random() * 500, chosen);
     }
   }
 
-  // 保存当前试错状态到全局
   window.__HY_examTries = currentTries;
-}
-
-// 提交考试
-function submitExam() {
-  try {
-    // 尝试多种提交按钮定位
-    var submitBtn = document.getElementById('btn_submit');
-    if (!submitBtn) {
-      submitBtn = document.querySelector('input[type="button"][value="提交"], button:contains("提交")');
-    }
-    if (!submitBtn) {
-      var allBtns = document.querySelectorAll('input[type="button"], button');
-      for (var i = 0; i < allBtns.length; i++) {
-        var t = allBtns[i].value || allBtns[i].textContent || '';
-        if (t.indexOf('提交') !== -1 || t.indexOf('交卷') !== -1) {
-          submitBtn = allBtns[i];
-          break;
-        }
-      }
-    }
-    if (submitBtn) {
-      log('[考试] 提交试卷');
-      submitBtn.click();
-    } else {
-      log('[考试] 找不到提交按钮!');
-    }
-  } catch(e) {
-    log('[考试] 提交出错: ' + e.message);
-  }
-}
-
-// 考试结果处理
-function doResult() {
-  log('[考试结果] 处理结果页面...');
-  cleanupRestrictions();
-
-  setTimeout(function() {
-    try {
-      var tips = document.querySelector('.tips_text, .result_text, [class*="result"], [class*="tips"]');
-      var isPass = false;
-      var resultText = '';
-
-      if (tips) {
-        resultText = tips.innerText.trim();
-        isPass = resultText.indexOf('考试通过') >= 0 ||
-                 resultText.indexOf('完成项目') >= 0 ||
-                 resultText.indexOf('合格') >= 0;
-      } else {
-        resultText = document.body.innerText;
-        isPass = resultText.indexOf('考试通过') >= 0 ||
-                 resultText.indexOf('完成项目') >= 0 ||
-                 resultText.indexOf('合格') >= 0;
-      }
-
-      // 提取正确答案并保存
-      saveCorrectAnswers(isPass);
-
-      if (isPass) {
-        log('[考试结果] 🎉 考试通过!');
-        Store.set(CONFIG.keys.planProgress, (Store.get(CONFIG.keys.planProgress, 0) || 0) + 1);
-        // 延迟返回课程列表
-        setTimeout(function() {
-          goBackToCourseList();
-        }, randDelay(2000));
-      } else {
-        log('[考试结果] ❌ 未通过');
-        // 尝试重新考试
-        var retryBtn = document.querySelector('input[type="button"][value="重新考试"], ' +
-          'button:contains("重新考试")');
-        if (retryBtn) {
-          log('[考试结果] 重新考试...');
-          retryBtn.click();
-        } else {
-          // 返回列表
-          setTimeout(function() {
-            goBackToCourseList();
-          }, randDelay(2000));
-        }
-      }
-    } catch(e) {
-      log('[考试结果] 处理出错: ' + e.message);
-      setTimeout(function() { goBackToCourseList(); }, 2000);
-    }
-  }, 1500);
-}
-
-// 保存正确答案
-function saveCorrectAnswers(isPass) {
-  try {
-    var dds = document.querySelectorAll('.state_cour_lis, .result-item, [class*="question"]');
-    var rightAnswers = Store.get(CONFIG.keys.rightAnswers, {});
-    var bodyText = document.body.innerText;
-
-    for (var i = 0; i < dds.length; i++) {
-      var img = dds[i].querySelector('img');
-      var p = dds[i].querySelector('p');
-      if (!img || !p) continue;
-
-      var qText = (p.getAttribute('title') || p.innerText)
-        .replace(/^\d+[、.，,]\s*/, '').replace(/\s*/g, '');
-
-      var isCorrect = img.src.indexOf('bar_img') !== -1 || img.src.indexOf('right') !== -1 ||
-                      img.src.indexOf('correct') !== -1;
-
-      if (isCorrect) {
-        // 提取用户答案
-        var escQ = qText.substring(0, 15).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        var answerMatch = bodyText.match(new RegExp(escQ + '[^】]*【您的答案：([^】]+)】'));
-        var userAnswer = answerMatch && answerMatch[1] ?
-          answerMatch[1].replace(/^\s*[A-Ea-e][、.，,)\s]\s*/, '').trim() : '';
-
-        if (qText && userAnswer) {
-          rightAnswers[qText] = userAnswer;
-          log('[考试结果] 保存正确答案: ' + userAnswer.substring(0, 15));
-        }
-      }
-    }
-
-    Store.set(CONFIG.keys.rightAnswers, rightAnswers);
-    log('[考试结果] 已保存 ' + Object.keys(rightAnswers).length + ' 条正确答案');
-  } catch(e) {
-    log('[考试结果] 保存答案出错: ' + e.message);
-  }
-}
-
-// 返回课程列表
-function goBackToCourseList() {
-  try {
-    log('[导航] 尝试返回课程列表');
-
-    // 方式1: 从URL参数获取cid
-    var params = new URLSearchParams(window.location.search);
-    var cid = params.get('cid') || '';
-
-    // 方式2: 找返回链接
-    var backLinks = document.querySelectorAll('a[href*="course.aspx"], a[href*="cme.aspx"], ' +
-      'a[href*="study_info"]');
-    for (var i = 0; i < backLinks.length; i++) {
-      if (backLinks[i].href && backLinks[i].href.indexOf('javascript:') === -1) {
-        log('[导航] 找到返回链接');
-        backLinks[i].click();
-        return;
-      }
-    }
-
-    // 方式3: 直接跳转
-    if (cid) {
-      log('[导航] 使用cid返回课程: ' + cid);
-      window.location.href = '/course_ware/course.aspx?cid=' + cid;
-    } else {
-      log('[导航] 返回学习记录页');
-      window.location.href = '/pages/study_info_list.aspx';
-    }
-  } catch(e) {
-    log('[导航] 返回出错: ' + e.message);
-    window.location.href = '/pages/study_info_list.aspx';
-  }
 }
 // ═══════════════════════════════════════════════════════════════
 // 6. UI控件面板
@@ -1630,89 +1560,69 @@ var BTN_STYLE = 'font-size:12px;font-weight:400;padding:5px 10px;margin:3px;' +
 
 // 创建控制面板
 function createControlPanel() {
-  if (document.getElementById('HY_controlPanel')) return;
+  if (document.getElementById("HY_controlPanel")) return;
 
-  var panel = document.createElement('div');
-  panel.id = 'HY_controlPanel';
-  panel.style.cssText = 'position:fixed;top:10px;left:10px;z-index:99999;' +
-    'background:rgba(255,255,255,.95);border:1px solid #4cb0f9;' +
-    'border-radius:8px;padding:10px;box-shadow:0 2px 12px rgba(0,0,0,.15);' +
-    'font-size:12px;font-family:"Microsoft YaHei",sans-serif;min-width:180px;' +
-    'display:none;';
+  var panel = document.createElement("div");
+  panel.id = "HY_controlPanel";
+  panel.style.cssText = "position:fixed;top:80px;right:10px;z-index:999999;" +
+    "background:rgba(30,30,35,.9);" +
+    "border:1px solid rgba(76,176,249,.4);border-radius:10px;" +
+    "padding:0;box-shadow:0 4px 24px rgba(0,0,0,.3);" +
+    "font-size:12px;font-family:Microsoft YaHei,sans-serif;" +
+    "min-width:200px;color:#fff;";
 
-  var mode = Store.get(CONFIG.keys.mode, 'auto');
-  var modeLabel = { 'video': '仅视频', 'full': '视频+考试', 'auto': '智能规划', 'plan': '仅规划' };
-
-  panel.innerHTML = '' +
-    '<div style="background:#4cb0f9;color:#fff;padding:6px 10px;border-radius:4px;margin:-10px -10px 8px -10px;' +
-    'font-weight:bold;font-size:13px;cursor:move;" id="HY_panelHeader">' +
-    '🔧 华医网小助手 v' + HY_VERSION +
-    '<span style="float:right;cursor:pointer;font-size:14px;" onclick="var p=document.getElementById(\'HY_controlPanel\');if(p)p.style.display=\'none\';">✕</span></div>' +
-
-    '<div style="margin-bottom:6px;">' +
-    '<label>模式: <select id="HY_modeSelect" style="padding:2px 4px;border:1px solid #ccc;border-radius:3px;">' +
-    '<option value="video"' + (mode==='video'?' selected':'') + '>仅视频</option>' +
-    '<option value="full"' + (mode==='full'?' selected':'') + '>视频+考试</option>' +
-    '<option value="auto"' + (mode==='auto'?' selected':'') + '>🤖 智能规划</option>' +
-    '<option value="plan"' + (mode==='plan'?' selected':'') + '>仅规划不执行</option>' +
-    '</select></label>' +
-    '</div>' +
-
-    '<div style="margin-bottom:6px;">' +
-    '<button id="HY_showPlan" style="' + BTN_STYLE + 'background:#4caf50;color:#fff;">📋 查看计划</button>' +
-    '<button id="HY_toggleLog" style="' + BTN_STYLE + 'background:#2196f3;color:#fff;">📝 日志</button>' +
-    '</div>' +
-
-    '<div id="HY_log" style="display:none;background:#1e1e1e;color:#0f0;padding:6px;' +
-    'border-radius:4px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:11px;' +
-    'margin-top:6px;white-space:pre-wrap;"></div>';
+  panel.innerHTML = "<div id=\"HY_header\" style=\"background:linear-gradient(135deg,#188AAE,#1565C0);padding:8px 12px;border-radius:10px 10px 0 0;cursor:move;font-size:13px;font-weight:bold;display:flex;align-items:center;justify-content:space-between;\">" +
+    "<span>\u1F916 华医网小助手 v" + HY_VERSION + "</span>" +
+    "<span id=\"HY_minBtn\" style=\"cursor:pointer;font-size:16px;opacity:.8;\">\u2212</span></div>" +
+    "<div id=\"HY_body\" style=\"padding:8px 12px;\">" +
+    "<div style=\"display:flex;gap:4px;margin-bottom:6px;\">" +
+    "<span id=\"HY_statusDot\" style=\"width:8px;height:8px;border-radius:50%;background:#4caf50;display:inline-block;\"></span>" +
+    "<span style=\"color:#aaa;font-size:11px;\">运行中</span></div>" +
+    "<div style=\"margin-bottom:6px;\">" +
+    "<select id=\"HY_modeSelect\" style=\"width:100%;padding:4px 6px;border:1px solid rgba(255,255,255,.2);border-radius:4px;background:rgba(255,255,255,.1);color:#fff;font-size:12px;\">" +
+    "<option value=\"video\">\uD83D\uDCFA \u4EC5\u89C6\u9891</option>" +
+    "<option value=\"full\">\uD83D\uDCDD \u89C6\u9891+\u8003\u8BD5</option>" +
+    "<option value=\"auto\" selected>\uD83E\uDD16 \u667A\u80FD\u89C4\u5212</option>" +
+    "<option value=\"plan\">\uD83D\uDCCB \u4EC5\u89C4\u5212</option></select></div>" +
+    "<div style=\"display:flex;gap:4px;\">" +
+    "<button id=\"HY_showPlan\" style=\"flex:1;padding:5px;border:none;border-radius:4px;background:#4caf50;color:#fff;cursor:pointer;font-size:11px;\">\uD83D\uDCCB \u8BA1\u5212</button>" +
+    "<button id=\"HY_toggleLog\" style=\"flex:1;padding:5px;border:none;border-radius:4px;background:#2196f3;color:#fff;cursor:pointer;font-size:11px;\">\uD83D\uDCDD \u65E5\u5FD7</button>" +
+    "<button id=\"HY_refresh\" onclick=\"location.reload()\" style=\"padding:5px 8px;border:none;border-radius:4px;background:#ff9800;color:#fff;cursor:pointer;font-size:11px;\">\u21BB</button></div>" +
+    "<div id=\"HY_log\" style=\"display:none;background:rgba(0,0,0,.6);color:#0f0;padding:6px;border-radius:4px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:10px;margin-top:6px;white-space:pre-wrap;\"></div></div>";
 
   document.body.appendChild(panel);
 
-  // 拖拽
-  var header = document.getElementById('HY_panelHeader');
-  var isDragging = false, startX, startY, origX, origY;
+  document.getElementById("HY_minBtn").onclick = function() {
+    var body = document.getElementById("HY_body");
+    body.style.display = body.style.display === "none" ? "block" : "none";
+    this.textContent = body.style.display === "none" ? "+" : "\u2212";
+  };
+
+  var header = document.getElementById("HY_header");
+  var dragging = false, sx, sy, ox, oy;
   header.onmousedown = function(e) {
-    isDragging = true;
-    startX = e.clientX;
-    startY = e.clientY;
-    origX = panel.offsetLeft;
-    origY = panel.offsetTop;
+    dragging = true; sx = e.clientX; sy = e.clientY;
+    ox = panel.offsetLeft; oy = panel.offsetTop;
     document.onmousemove = function(ev) {
-      if (isDragging) {
-        panel.style.left = (origX + ev.clientX - startX) + 'px';
-        panel.style.top = (origY + ev.clientY - startY) + 'px';
-      }
+      if (dragging) { panel.style.left = (ox + ev.clientX - sx) + "px"; panel.style.top = (oy + ev.clientY - sy) + "px"; panel.style.right = "auto"; }
     };
-    document.onmouseup = function() { isDragging = false; document.onmousemove = null; };
+    document.onmouseup = function() { dragging = false; document.onmousemove = null; };
   };
 
-  // 模式切换
-  document.getElementById('HY_modeSelect').onchange = function() {
+  document.getElementById("HY_modeSelect").onchange = function() {
     Store.set(CONFIG.keys.mode, this.value);
-    log('[UI] 模式切换为: ' + this.options[this.selectedIndex].text);
   };
 
-  // 查看计划
-  document.getElementById('HY_showPlan').onclick = function() {
-    var plan = Store.get(CONFIG.keys.currentPlan);
-    if (plan) {
-      CreditPlanner.displayPlan(plan);
-    } else {
-      log('[UI] 无已保存的计划, 请在"学习记录"页生成');
-      CreditPlanner.showStatusBanner('info', '请先进入"学习记录"页生成计划');
-    }
+  document.getElementById("HY_showPlan").onclick = function() {
+    var p = Store.get(CONFIG.keys.currentPlan);
+    if (p) CreditPlanner.displayPlan(p);
   };
 
-  // 日志切换
-  document.getElementById('HY_toggleLog').onclick = function() {
-    var logEl = document.getElementById('HY_log');
-    logEl.style.display = logEl.style.display === 'none' ? 'block' : 'none';
+  document.getElementById("HY_toggleLog").onclick = function() {
+    var el = document.getElementById("HY_log");
+    el.style.display = el.style.display === "none" ? "block" : "none";
   };
-}
-
-// 显示控制面板
-function showControlPanel() {
+}function showControlPanel() {
   createControlPanel();
   var panel = document.getElementById('HY_controlPanel');
   if (panel) panel.style.display = 'block';

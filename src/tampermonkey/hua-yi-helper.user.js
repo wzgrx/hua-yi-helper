@@ -1560,89 +1560,69 @@ var BTN_STYLE = 'font-size:12px;font-weight:400;padding:5px 10px;margin:3px;' +
 
 // 创建控制面板
 function createControlPanel() {
-  if (document.getElementById('HY_controlPanel')) return;
+  if (document.getElementById("HY_controlPanel")) return;
 
-  var panel = document.createElement('div');
-  panel.id = 'HY_controlPanel';
-  panel.style.cssText = 'position:fixed;top:10px;left:10px;z-index:99999;' +
-    'background:rgba(255,255,255,.95);border:1px solid #4cb0f9;' +
-    'border-radius:8px;padding:10px;box-shadow:0 2px 12px rgba(0,0,0,.15);' +
-    'font-size:12px;font-family:"Microsoft YaHei",sans-serif;min-width:180px;' +
-    'display:none;';
+  var panel = document.createElement("div");
+  panel.id = "HY_controlPanel";
+  panel.style.cssText = "position:fixed;top:80px;right:10px;z-index:999999;" +
+    "background:rgba(30,30,35,.9);" +
+    "border:1px solid rgba(76,176,249,.4);border-radius:10px;" +
+    "padding:0;box-shadow:0 4px 24px rgba(0,0,0,.3);" +
+    "font-size:12px;font-family:Microsoft YaHei,sans-serif;" +
+    "min-width:200px;color:#fff;";
 
-  var mode = Store.get(CONFIG.keys.mode, 'auto');
-  var modeLabel = { 'video': '仅视频', 'full': '视频+考试', 'auto': '智能规划', 'plan': '仅规划' };
-
-  panel.innerHTML = '' +
-    '<div style="background:#4cb0f9;color:#fff;padding:6px 10px;border-radius:4px;margin:-10px -10px 8px -10px;' +
-    'font-weight:bold;font-size:13px;cursor:move;" id="HY_panelHeader">' +
-    '🔧 华医网小助手 v' + HY_VERSION +
-    '<span style="float:right;cursor:pointer;font-size:14px;" onclick="var p=document.getElementById(\'HY_controlPanel\');if(p)p.style.display=\'none\';">✕</span></div>' +
-
-    '<div style="margin-bottom:6px;">' +
-    '<label>模式: <select id="HY_modeSelect" style="padding:2px 4px;border:1px solid #ccc;border-radius:3px;">' +
-    '<option value="video"' + (mode==='video'?' selected':'') + '>仅视频</option>' +
-    '<option value="full"' + (mode==='full'?' selected':'') + '>视频+考试</option>' +
-    '<option value="auto"' + (mode==='auto'?' selected':'') + '>🤖 智能规划</option>' +
-    '<option value="plan"' + (mode==='plan'?' selected':'') + '>仅规划不执行</option>' +
-    '</select></label>' +
-    '</div>' +
-
-    '<div style="margin-bottom:6px;">' +
-    '<button id="HY_showPlan" style="' + BTN_STYLE + 'background:#4caf50;color:#fff;">📋 查看计划</button>' +
-    '<button id="HY_toggleLog" style="' + BTN_STYLE + 'background:#2196f3;color:#fff;">📝 日志</button>' +
-    '</div>' +
-
-    '<div id="HY_log" style="display:none;background:#1e1e1e;color:#0f0;padding:6px;' +
-    'border-radius:4px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:11px;' +
-    'margin-top:6px;white-space:pre-wrap;"></div>';
+  panel.innerHTML = "<div id=\"HY_header\" style=\"background:linear-gradient(135deg,#188AAE,#1565C0);padding:8px 12px;border-radius:10px 10px 0 0;cursor:move;font-size:13px;font-weight:bold;display:flex;align-items:center;justify-content:space-between;\">" +
+    "<span>\u1F916 华医网小助手 v" + HY_VERSION + "</span>" +
+    "<span id=\"HY_minBtn\" style=\"cursor:pointer;font-size:16px;opacity:.8;\">\u2212</span></div>" +
+    "<div id=\"HY_body\" style=\"padding:8px 12px;\">" +
+    "<div style=\"display:flex;gap:4px;margin-bottom:6px;\">" +
+    "<span id=\"HY_statusDot\" style=\"width:8px;height:8px;border-radius:50%;background:#4caf50;display:inline-block;\"></span>" +
+    "<span style=\"color:#aaa;font-size:11px;\">运行中</span></div>" +
+    "<div style=\"margin-bottom:6px;\">" +
+    "<select id=\"HY_modeSelect\" style=\"width:100%;padding:4px 6px;border:1px solid rgba(255,255,255,.2);border-radius:4px;background:rgba(255,255,255,.1);color:#fff;font-size:12px;\">" +
+    "<option value=\"video\">\uD83D\uDCFA \u4EC5\u89C6\u9891</option>" +
+    "<option value=\"full\">\uD83D\uDCDD \u89C6\u9891+\u8003\u8BD5</option>" +
+    "<option value=\"auto\" selected>\uD83E\uDD16 \u667A\u80FD\u89C4\u5212</option>" +
+    "<option value=\"plan\">\uD83D\uDCCB \u4EC5\u89C4\u5212</option></select></div>" +
+    "<div style=\"display:flex;gap:4px;\">" +
+    "<button id=\"HY_showPlan\" style=\"flex:1;padding:5px;border:none;border-radius:4px;background:#4caf50;color:#fff;cursor:pointer;font-size:11px;\">\uD83D\uDCCB \u8BA1\u5212</button>" +
+    "<button id=\"HY_toggleLog\" style=\"flex:1;padding:5px;border:none;border-radius:4px;background:#2196f3;color:#fff;cursor:pointer;font-size:11px;\">\uD83D\uDCDD \u65E5\u5FD7</button>" +
+    "<button id=\"HY_refresh\" onclick=\"location.reload()\" style=\"padding:5px 8px;border:none;border-radius:4px;background:#ff9800;color:#fff;cursor:pointer;font-size:11px;\">\u21BB</button></div>" +
+    "<div id=\"HY_log\" style=\"display:none;background:rgba(0,0,0,.6);color:#0f0;padding:6px;border-radius:4px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:10px;margin-top:6px;white-space:pre-wrap;\"></div></div>";
 
   document.body.appendChild(panel);
 
-  // 拖拽
-  var header = document.getElementById('HY_panelHeader');
-  var isDragging = false, startX, startY, origX, origY;
+  document.getElementById("HY_minBtn").onclick = function() {
+    var body = document.getElementById("HY_body");
+    body.style.display = body.style.display === "none" ? "block" : "none";
+    this.textContent = body.style.display === "none" ? "+" : "\u2212";
+  };
+
+  var header = document.getElementById("HY_header");
+  var dragging = false, sx, sy, ox, oy;
   header.onmousedown = function(e) {
-    isDragging = true;
-    startX = e.clientX;
-    startY = e.clientY;
-    origX = panel.offsetLeft;
-    origY = panel.offsetTop;
+    dragging = true; sx = e.clientX; sy = e.clientY;
+    ox = panel.offsetLeft; oy = panel.offsetTop;
     document.onmousemove = function(ev) {
-      if (isDragging) {
-        panel.style.left = (origX + ev.clientX - startX) + 'px';
-        panel.style.top = (origY + ev.clientY - startY) + 'px';
-      }
+      if (dragging) { panel.style.left = (ox + ev.clientX - sx) + "px"; panel.style.top = (oy + ev.clientY - sy) + "px"; panel.style.right = "auto"; }
     };
-    document.onmouseup = function() { isDragging = false; document.onmousemove = null; };
+    document.onmouseup = function() { dragging = false; document.onmousemove = null; };
   };
 
-  // 模式切换
-  document.getElementById('HY_modeSelect').onchange = function() {
+  document.getElementById("HY_modeSelect").onchange = function() {
     Store.set(CONFIG.keys.mode, this.value);
-    log('[UI] 模式切换为: ' + this.options[this.selectedIndex].text);
   };
 
-  // 查看计划
-  document.getElementById('HY_showPlan').onclick = function() {
-    var plan = Store.get(CONFIG.keys.currentPlan);
-    if (plan) {
-      CreditPlanner.displayPlan(plan);
-    } else {
-      log('[UI] 无已保存的计划, 请在"学习记录"页生成');
-      CreditPlanner.showStatusBanner('info', '请先进入"学习记录"页生成计划');
-    }
+  document.getElementById("HY_showPlan").onclick = function() {
+    var p = Store.get(CONFIG.keys.currentPlan);
+    if (p) CreditPlanner.displayPlan(p);
   };
 
-  // 日志切换
-  document.getElementById('HY_toggleLog').onclick = function() {
-    var logEl = document.getElementById('HY_log');
-    logEl.style.display = logEl.style.display === 'none' ? 'block' : 'none';
+  document.getElementById("HY_toggleLog").onclick = function() {
+    var el = document.getElementById("HY_log");
+    el.style.display = el.style.display === "none" ? "block" : "none";
   };
-}
-
-// 显示控制面板
-function showControlPanel() {
+}function showControlPanel() {
   createControlPanel();
   var panel = document.getElementById('HY_controlPanel');
   if (panel) panel.style.display = 'block';
