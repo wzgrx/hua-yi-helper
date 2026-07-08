@@ -1077,7 +1077,7 @@ var SmartEngine = {
     }, 1000);
     
     var checkTimer = setInterval(function() {
-      if (!self._running) { clearInterval(checkTimer); return; }
+      if (self._running === false && checkCount > 0) { clearInterval(checkTimer); return; }
       checkCount++;
       try {
         // 立即检查是否可进入考试(视频可能已完成)
