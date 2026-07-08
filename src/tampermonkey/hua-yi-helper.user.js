@@ -2236,7 +2236,13 @@ function mainRouter() {
               log('[路由] 自动进入课件: ' + found.name + ' (' + found.status + ')');
               safeNavigate(found.href);
             } else {
-              log('[路由] 所有课件已完成');
+              // All coursewares completed but course may need exam
+              // Enter first courseware to reach video page with #jrks exam button
+              log('[路由] 所有课件已完成, 进入第一个课件查找考试入口');
+              if (cws.length > 0 && cws[0].href) {
+                Store.s('__HY_lookingForExam', true);
+                safeNavigate(cws[0].href);
+              }
             }
           }
         }, 2000);
