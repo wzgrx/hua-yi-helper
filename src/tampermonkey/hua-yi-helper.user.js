@@ -347,9 +347,35 @@ var VueCourseScanner = {
     var courses = [];
     try {
       // 寻找课程卡片容器
-      var proCent = document.querySelector('.pro_cent');
-      if (!proCent) {
-        log('[VUE扫描] 未找到.pro_cent课程容器');
+      var container = document.querySelector('.pro_cent') || document.querySelector('.pro_box');
+      if (!container) {
+        // 备用: 直接找所有课程链接
+        var links = document.querySelectorAll('a[href*="course.aspx?cid="]');
+        if (links.length > 0) {
+          log('[VUE扫描] 备用选择器: 找到 ' + links.length + ' 个课程链接');
+          links.forEach(function(a) {
+            var name = (a.textContent || '').trim();
+            if (!name) name = (a.title || '').trim();
+            if (!name) {
+              var parent = a.closest('[class*="card"], [class*="item"], [class*="list"], td');
+              if (parent) {
+                var pt = (parent.textContent || '').replace(/\s+/g, ' ').trim().substring(0, 50);
+                if (pt.length > 5) name = pt;
+              }
+            }
+            if (!name) name = '课程 ' + (links.length > 0 ? '#' + (Array.from(links).indexOf(a) + 1) : '');
+            courses.push({
+              name: name,
+              link: a.href,
+              credit: 1,
+              status: '未学习',
+              isPublic: name.indexOf('公需') >= 0,
+              completed: false
+            });
+          });
+          return courses;
+        }
+        log('[VUE扫描] 未找到课程容器或链接');
         return courses;
       }
       
@@ -568,7 +594,26 @@ var CreditPlanner = {
   analyze: function() {
     log('[学分] 开始分析学分...');
     
-    var courses = VueCourseScanner.scanFromVueSPA();
+    // 优先使用学习记录表数据 (study_info_list.aspx/cme.aspx)
+    var tableData = VueCourseScanner.scanCreditsFromASP();
+    var courses;
+    if (tableData && tableData.courses && tableData.courses.length > 0) {
+      log('[学分] 从学习记录表解析到 ' + tableData.courses.length + ' 门课');
+      courses = tableData.courses.map(function(c) {
+        return {
+          name: c.name,
+          link: c.link,
+          credit: c.credit,
+          status: c.status,
+          isPublic: c.isPublic,
+          completed: c.completed
+        };
+      });
+    } else {
+      // 备用: 从Vue SPA课程卡片扫描
+      courses = VueCourseScanner.scanFromVueSPA();
+    }
+    
     var result = {
       courses: courses,
       totalEarned: 0,
@@ -1821,18 +1866,31 @@ function mainRouter() {
     }
     else if (URL.isVueSPA() || URL.isCME) {
       // Vue SPA主页面 - 课程列表
-      log('[路由] Vue SPA课程页面');
-      setTimeout(function() {
+      log('[路由] Vue SPA课程页面 (等待Vue渲染)');
+      // 立即重写btn67链接(ASP.NET组件可能嵌入Vue页面)
+      fixWindowOpenLinks();
+      // 多次尝试扫描, 等待Vue渲染完成
+      var retryCount = 0;
+      var maxRetries = 6;
+      function tryVueScan() {
         if (SmartEngine._running) {
           SmartEngine.handleCurrentPage();
-        } else {
-          // 被动模式: 仅显示学分状态
-          var analysis = CreditPlanner.analyze();
-          if (analysis && !analysis.met) {
-            log('[学分] 缺口: ' + analysis.totalRemaining + '分 (公需' + analysis.publicRemaining + ', 其他' + analysis.otherRemaining + ')');
+          return;
+        }
+        var analysis = CreditPlanner.analyze();
+        if (analysis && !analysis.met) {
+          log('[学分] 缺口: ' + analysis.totalRemaining + '分 (公需' + analysis.publicRemaining + ', 其他' + analysis.otherRemaining + ')');
+          CreditPlanner.showQuickStatus(analysis);
+        } else if (!analysis || analysis.total === 0) {
+          retryCount++;
+          if (retryCount <= maxRetries) {
+            var delay = retryCount * 3000;
+            log('[路由] Vue未渲染完成, ' + Math.round(delay/1000) + '秒后重试(' + retryCount + '/' + maxRetries + ')');
+            setTimeout(tryVueScan, delay);
           }
         }
-      }, 2000);
+      }
+      setTimeout(tryVueScan, 2000);
     }
     else if (URL.isStudyList) {
       log('[路由] 学习记录页(ASP.NET)');
