@@ -1082,10 +1082,14 @@ var SmartEngine = {
       try {
         // 立即检查是否可进入考试(视频可能已完成)
         var jrksBtn = document.getElementById('jrks');
-        if (jrksBtn && jrksBtn.offsetParent !== null && !jrksBtn.disabled) {
-          log('[引擎] 检测到进入考试按钮, 进入考试');
+        if (jrksBtn && jrksBtn.style.display !== 'none') {
+          log('[引擎] 检测到进入考试, 进入考试');
           clearInterval(checkTimer);
-          jrksBtn.click();
+          if (jrksBtn.tagName === 'A' && jrksBtn.href) {
+            window.location.href = jrksBtn.href;
+          } else {
+            jrksBtn.click();
+          }
           return;
         }
 
@@ -1106,11 +1110,15 @@ var SmartEngine = {
           if (progress > 0.95 || (video.duration > 0 && video.currentTime >= video.duration - 5)) {
             clearInterval(checkTimer);
             log('[引擎] 视频播放完成!');
-            var jrks = document.getElementById('jrks');
-            if (jrks && jrks.offsetParent !== null) {
-              log('[引擎] 检测到进入考试, 点击后返回');
+            var jrksFinal = document.getElementById('jrks');
+            if (jrksFinal && jrksFinal.style.display !== 'none') {
+              log('[引擎] 检测到进入考试, 进入考试');
               self._running = false;
-              jrks.click();
+              if (jrksFinal.tagName === 'A' && jrksFinal.href) {
+                window.location.href = jrksFinal.href;
+              } else {
+                jrksFinal.click();
+              }
             } else {
               log('[引擎] 返回课程列表');
               self._running = false;
