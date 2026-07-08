@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      3.8.0
+// @version      3.8.1
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -113,7 +113,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.8.0";
+var HY_VERSION = "3.8.1";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -1272,6 +1272,7 @@ var SmartEngine = {
     var checkCount = 0;
     var maxChecks = 600;
     var videoStarted = false;
+    var videoAlreadyCompleted = false; // v3.8.1: shared flag for both setTimeout and checkTimer
     
     // v3.8.0: 检测已完成的视频并跳过重新播放
     // 网站 ban_history_time=on 导致视频重置到0, 但localStorage记录了
@@ -1297,6 +1298,7 @@ var SmartEngine = {
               var playTime = parseInt(localStorage.getItem(lsKeys[ki]));
               if (!isNaN(playTime) && videoDur > 0 && playTime >= videoDur - 5) {
                 isAlreadyCompleted = true;
+                videoAlreadyCompleted = true; // Set shared flag
                 log('[引擎] 检测到视频已完成(localStorage记录: ' + playTime + '秒/' + Math.round(videoDur) + '秒)');
                 break;
               }
@@ -1309,6 +1311,7 @@ var SmartEngine = {
           var v0 = videos[0];
           if (v0.duration > 0 && (v0.ended || v0.currentTime >= v0.duration - 3)) {
             isAlreadyCompleted = true;
+            videoAlreadyCompleted = true; // Set shared flag
             log('[引擎] 检测到视频已完成(ended/currentTime)');
           }
         }
@@ -1381,10 +1384,19 @@ var SmartEngine = {
             if (checkCount % 10 === 0) {
               log('[引擎] 等待考试按钮启用... (视频已结束)');
             }
-          } else {
+          } else if (!videoAlreadyCompleted) {
+            // v3.8.1: Don't play if video was already completed (localStorage check)
+            // ban_history_time=on resets video to 0:00, but we know it was watched
             if (!videoStarted && !video.paused) { videoStarted = true; log('[引擎] 视频正在播放'); }
             if (!videoStarted && video.paused && checkCount % 5 === 0) {
               try { var p = video.play(); if(p&&p.then) p.catch(function(){}); } catch(e) {}
+            }
+          } else {
+            // Video already completed but s2j_onPlayOver hasn't enabled jrks yet
+            // Try calling s2j_onPlayOver again
+            if (checkCount % 5 === 0) {
+              try { if (typeof window.s2j_onPlayOver === 'function') window.s2j_onPlayOver(); } catch(e) {}
+              log('[引擎] 等待考试按钮启用... (已完成视频)');
             }
           }
 
