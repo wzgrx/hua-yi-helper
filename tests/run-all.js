@@ -136,6 +136,7 @@ if (fs.existsSync(usPath)) {
   const content = fs.readFileSync(usPath, 'utf8');
   assert(content.includes('scanNewCourseList'), '包含新版课程扫描函数');
   assert(content.includes('handleCourseListNew'), '包含新版课程列表处理函数');
+  assert(content.includes('handleCourseListCombined'), '包含合并版课程处理函数');
   assert(content.includes('scanRecommendedCourses'), '包含推荐课程扫描函数');
   assert(content.includes('input.btn67'), '包含新版按钮选择器');
   assert(content.includes('isFME'), '包含FME页面识别');

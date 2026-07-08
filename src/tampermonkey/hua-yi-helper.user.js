@@ -1839,13 +1839,17 @@ function mainRouter() {
     log('[路由] 学习记录页 → 运行学分规划');
     handleStudyList();
   }
+  else if (URL.isStudyList) {
+    log('[路由] 学习记录页(Vue SPA) → 运行学分规划');
+    handleStudyList();
+  }
   else if (URL.isCourseList || URL.full.indexOf('cme/index') !== -1) {
-    log('[路由] 课程列表页(新版) → 自动扫描课程');
-    handleCourseListNew();
+    log('[路由] 课程列表页 → 自动扫描+学分规划');
+    handleCourseListCombined();
   }
   else if (URL.full.indexOf('fme.aspx') !== -1) {
     log('[路由] 全员专项页面');
-    handleCourseListNew();
+    handleCourseListCombined();
   }
   else {
     log('[路由] 其他页面');
@@ -1859,8 +1863,12 @@ function mainRouter() {
 // 学习记录页处理
 function handleStudyList() {
   log('[学分规划] 开始分析学分数据...');
-
-  // 等待页面加载
+  
+  // study_info_list.aspx已重定向到Vue SPA /cme/index
+  // 学分数据现在在cme.aspx页面的学习记录表中
+  // 所以我们检查当前页面类型
+  var isCmePage = document.querySelector('.index-main-right') !== null;
+  
   setTimeout(function() {
     var analysis = CreditPlanner.analyze();
     if (analysis) {
@@ -1868,7 +1876,6 @@ function handleStudyList() {
       var plan = CreditPlanner.generatePlan(analysis);
       if (plan) {
         CreditPlanner.displayPlan(plan);
-        // auto模式: 3秒后自动执行
         var mode = Store.get(CONFIG.keys.mode, 'auto');
         if (mode === 'auto' && !plan.met && plan.tasks.length > 0) {
           log('[学分规划] auto模式, 5秒后自动执行计划');
@@ -1878,8 +1885,7 @@ function handleStudyList() {
         }
       }
     } else {
-      log('[学分规划] 学分分析失败, 页面可能是空表');
-      // 尝试搜索课程链接
+      log('[学分规划] 学分分析失败, 尝试搜索课程链接');
       setTimeout(function() {
         autoScanCourses();
       }, 2000);
@@ -1898,7 +1904,33 @@ function handleCourseList() {
   }, 2000);
 }
 
-// 新版课程列表页处理 (2026年改版: cme.aspx新布局)
+// 新版课程列表全功能处理: 扫描课程 + 学分规划
+function handleCourseListCombined() {
+  log('[课程扫描] 开始扫描课程 + 学分分析...');
+  // 先扫描课程
+  setTimeout(function() {
+    var plan = Store.get(CONFIG.keys.currentPlan);
+    if (plan) log('[课程扫描] 当前计划: ' + (plan.summary || ''));
+    var found = scanNewCourseList();
+    if (!found) {
+      log('[课程扫描] 无可用课程, 扫描推荐项目');
+      scanRecommendedCourses();
+    }
+    // 同时运行学分分析 (cme.aspx现在包含学习记录表)
+    setTimeout(function() {
+      var analysis = CreditPlanner.analyze();
+      if (analysis) {
+        CreditPlanner.showQuickStatus(analysis);
+        if (!analysis.met) {
+          var plan2 = CreditPlanner.generatePlan(analysis);
+          if (plan2) CreditPlanner.displayPlan(plan2);
+        }
+      }
+    }, 1000);
+  }, 2000);
+}
+
+// Old handler kept for compatibility
 function handleCourseListNew() {
   log('[课程扫描-新版] 开始扫描课程...');
   setTimeout(function() {
