@@ -1899,4 +1899,8 @@ if (document.readyState === 'loading') {
   }
 }
 
-} // __HY_main 结束
+}
+
+// 启动脚本
+__HY_main();
+
