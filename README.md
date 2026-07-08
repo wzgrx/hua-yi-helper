@@ -1,9 +1,9 @@
-# 华医网小助手 v3.5
+# 华医网小助手 v3.6
 
 > 全自动智能刷课 | 真实适配2026华医网Vue SPA新版 | 学分规划 | 无人值守
 
 [![License](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.5.0-brightgreen.svg)](https://github.com/wzgrx/hua-yi-helper)
+[![Version](https://img.shields.io/badge/version-3.6.1-brightgreen.svg)](https://github.com/wzgrx/hua-yi-helper)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey%20%7C%20Win11-orange.svg)](https://github.com/wzgrx/hua-yi-helper)
 
 ---
@@ -202,3 +202,26 @@
 - `window.open`拦截: ✅ 同标签页跳转, 不开新标签页
 - 学分分析: ✅ 5/25分(公需5已申请, 其他0, 2门学习完毕待考, 4门学习中)
 - 课程扫描: ✅ 12门课程正确识别
+- 课程扫描: ✅ 12门课程正确识别
+
+## v3.6.0-3.6.1 学习记录优先 + 互动病例 (2026-07-08)
+
+### 学习记录优先流程
+- 用户点击执行后, 脚本先导航到`study_info_list.aspx`查看真实学分状态
+- 不再在Vue SPA页面扫描(那里所有课程显示"未学习")
+- 正确识别: 已申请(已完成) / 学习完毕(需考试) / 学习中(需继续)
+- 浏览器验证: 已获5分, 待处理6门课, 生成7个任务计划
+
+### 互动病例课件支持
+- 发现网站新课件格式: `hdbl.91huayi.com` (Vue SPA互动病例)
+- `course_ware.aspx`链接重定向到互动病例页面, 非传统视频页
+- 新增`handleInteractiveCase()`: 自动点击"查看病例"/"下一步"/"继续"
+- 新增`@match hdbl.91huayi.com`域名匹配
+- 新增`exam_result_hd.aspx`考试结果页检测
+- 浏览器验证: 成功检测并自动点击"查看病例"按钮
+
+### 其他修复
+- `proCent`变量名bug修复(第416行+第419行)
+- `start()`不再在调用前设置`_running=true`(导致直接返回)
+- Vue SPA页面从学习记录转来时合并新课程到计划
+ - 任务URL回退: 无链接时用`course.aspx?cid=`构造
