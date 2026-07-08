@@ -259,6 +259,7 @@ var URL = (function() {
     last: last,
     isStudyList: last === 'study_info_list.aspx',
     isCourseList: last === 'course.aspx' || last === 'cme.aspx',
+    isCourseDetail: last === 'course.aspx' && href.indexOf('cid=') !== -1,
     isFME: last === 'fme.aspx',
     isCmeIndex: href.indexOf('/cme/index') !== -1,
     isPolyv: last === 'course_ware_polyv.aspx',
@@ -1843,6 +1844,10 @@ function mainRouter() {
     log('[路由] 学习记录页(Vue SPA) → 运行学分规划');
     handleStudyList();
   }
+  else if (URL.isCourseDetail) {
+    log('[路由] 课程详情页(含课件列表) → 自动扫描课件并播放');
+    handleCourseDetail();
+  }
   else if (URL.isCourseList || URL.full.indexOf('cme/index') !== -1) {
     log('[路由] 课程列表页 → 自动扫描+学分规划');
     handleCourseListCombined();
@@ -1895,6 +1900,80 @@ function handleStudyList() {
 
 // 课程列表页处理
 function handleCourseList() {
+  log('[课程扫描] 开始扫描课程...');
+  setTimeout(function() {
+    var plan = Store.get(CONFIG.keys.currentPlan);
+    if (plan) log('[课程扫描] 当前计划: ' + (plan.summary || ''));
+    var found = autoScanCourses();
+    if (!found) log('[课程扫描] 无可用课程, 检查学分状态');
+  }, 2000);
+}
+
+// 课程详情页处理 (2026新版: course.aspx?cid=X 含课件列表)
+function handleCourseDetail() {
+  log('[课程详情] 开始扫描课件列表...');
+  setTimeout(function() {
+    var result = scanCoursewareItems();
+    if (result) {
+      log('[课程详情] 自动进入课件: ' + result.name);
+      window.location.href = result.href;
+    } else {
+      log('[课程详情] 无可学习的课件');
+      // 尝试回到课程列表
+      goBackToCourseList();
+    }
+  }, 2000);
+}
+
+// 扫描课件列表，找到需要学习的课件
+function scanCoursewareItems() {
+  log('[课程详情] 扫描课件...');
+  var coursewares = document.querySelectorAll('div.course[data-href]');
+  if (coursewares.length === 0) {
+    log('[课程详情] 未找到课件');
+    return null;
+  }
+  log('[课程详情] 找到 ' + coursewares.length + ' 个课件');
+
+  var candidates = [];
+  for (var i = 0; i < coursewares.length; i++) {
+    var cw = coursewares[i];
+    var href = cw.getAttribute('data-href') || '';
+    var button = cw.querySelector('.cw-status button, button');
+    var status = button ? (button.innerText || button.textContent || '').trim() : '';
+    var progressRow = cw.querySelector('.cw-progress-row');
+    var completed = progressRow ? progressRow.getAttribute('data-completed') : '0';
+    var titleEl = cw.querySelector('.cw-title-link strong, .f14blue');
+    var name = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : ('课件 ' + (i + 1));
+    if (href.indexOf('http') === -1 && href.indexOf('/') === 0) {
+      href = window.location.origin + href;
+    } else if (href.indexOf('http') === -1) {
+      href = window.location.origin + '/course_ware/' + href.replace('../course_ware/', '');
+    }
+    candidates.push({ name: name, href: href, status: status, completed: completed === '1', index: i });
+  }
+
+  // 排序: 学习中优先 > 待考试 > 已完成
+  candidates.sort(function(a, b) {
+    if (a.completed && !b.completed) return 1;
+    if (!a.completed && b.completed) return -1;
+    if (a.status === '学习中' && b.status !== '学习中') return -1;
+    if (a.status !== '学习中' && b.status === '学习中') return 1;
+    if (a.status === '待考试' && b.status !== '待考试') return -1;
+    if (a.status !== '待考试' && b.status === '待考试') return 1;
+    return a.index - b.index;
+  });
+
+  for (var c = 0; c < candidates.length; c++) {
+    if (!candidates[c].completed) {
+      log('[课程详情] 选中: ' + candidates[c].name + ' (状态: ' + candidates[c].status + ')');
+      return candidates[c];
+    }
+  }
+  log('[课程详情] 所有课件已完成');
+  return null;
+}
+
   log('[课程扫描] 开始扫描课程...');
   setTimeout(function() {
     var plan = Store.get(CONFIG.keys.currentPlan);

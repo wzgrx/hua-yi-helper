@@ -52,7 +52,7 @@ if (fs.existsSync(usPath)) {
   const content = fs.readFileSync(usPath, 'utf8');
   assert(content.includes('==UserScript=='), '包含 ==UserScript== 头');
   assert(content.includes('@match'), '包含 @match 声明');
-  assert(content.includes('@version      3.0.0'), '版本号 v3.0.0');
+  assert(content.includes('@version      3.0.1'), '版本号 v3.0.1');
   assert(content.includes('@run-at       document-start'), 'document-start 运行');
   assert(content.includes('@grant        GM_getValue'), 'GM_getValue 授权');
   assert(content.includes('CreditPlanner'), '包含学分规划器');
@@ -136,6 +136,7 @@ if (fs.existsSync(usPath)) {
   const content = fs.readFileSync(usPath, 'utf8');
   assert(content.includes('scanNewCourseList'), '包含新版课程扫描函数');
   assert(content.includes('handleCourseListNew'), '包含新版课程列表处理函数');
+  assert(content.includes('handleCourseDetail'), '包含课程详情页处理函数');
   assert(content.includes('handleCourseListCombined'), '包含合并版课程处理函数');
   assert(content.includes('scanRecommendedCourses'), '包含推荐课程扫描函数');
   assert(content.includes('input.btn67'), '包含新版按钮选择器');
