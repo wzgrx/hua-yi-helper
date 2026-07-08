@@ -1678,6 +1678,18 @@ function createControlPanel() {
 
   document.body.appendChild(panel);
 
+  // SmartPlanner 控制按钮
+  try {
+    var spDiv = document.createElement("div");
+    spDiv.style.cssText = "display:flex;gap:4px;margin-top:6px;justify-content:center;";
+    spDiv.innerHTML = '<button id="HY_planBtn" style="flex:1;padding:4px;border:none;border-radius:4px;cursor:pointer;font-size:10px;color:#fff;background:#1565C0;">🎯计划</button><button id="HY_goBtn" style="flex:1;padding:4px;border:none;border-radius:4px;cursor:pointer;font-size:10px;color:#fff;background:#4caf50;">▶执行</button><button id="HY_stopBtn" style="flex:1;padding:4px;border:none;border-radius:4px;cursor:pointer;font-size:10px;color:#fff;background:#f44336;">⏸</button>';
+    document.getElementById("HY_body").appendChild(spDiv);
+
+    document.getElementById("HY_planBtn").onclick = function() { SmartPlanner.makePlan(); };
+    document.getElementById("HY_goBtn").onclick = function() { SmartPlanner.start(); };
+    document.getElementById("HY_stopBtn").onclick = function() { SmartPlanner.stop(); };
+  } catch(e) { console.log("[HY] SM init error: " + e.message); }
+
   document.getElementById("HY_minBtn").onclick = function() {
     var body = document.getElementById("HY_body");
     body.style.display = body.style.display === "none" ? "block" : "none";
@@ -1878,6 +1890,9 @@ function mainRouter() {
 
   // 显示启动横幅
   showBanner();
+
+    // SmartPlanner 执行中检查
+  if (SmartPlanner.continueExecution()) { return; }
 
   // 按页面类型分发
   if (URL.isFace) {
