@@ -1479,6 +1479,25 @@ function smartScore(text) {
   // 15. 选项含否定前缀
   if (/^(不|无|非|未)/.test(t)) score -= 3;
   
+  // === 医学知识增强 (v3.4.1) ===
+  // 16. 题目问'不是/错误/除外'时, 答案评分反转
+  // (这个逻辑在answerQuestions中处理, 这里只是基础评分)
+  // 17. 含具体医学指标 (更可能正确)
+  if (/PaO2|FiO2|PEEP|pH|PO2|PCO2|SpO2|GCS|APACHE|SOFA|mmHg|cmH2O/.test(t)) score += 3;
+  // 18. 含规范/标准/指南 (通常正确)
+  if (/指南|规范|标准|共识|推荐/.test(t)) score += 2;
+  // 19. 含'增加/升高'与'减少/降低'对比时
+  if (/增高|升高|增加|增多/.test(t) && /降低|减少|下降/.test(t)) score += 0; // 中性
+  // 20. 含剂量/频率 (具体数字+单位, 通常正确)
+  if (/\d+\s*(mg|ug|ml|次|天|日|小时|分钟|秒|mmol|mEq)/.test(t)) score += 2;
+  // 21. 长选项含多个分号或逗号 (更全面的答案)
+  if ((t.match(/[；;]/g) || []).length >= 2) score += 2;
+  if ((t.match(/[，,]/g) || []).length >= 3) score += 1;
+  // 22. 选项含'均可/都能/同时' (全面性)
+  if (/均可|都能|同时|两者|三者/.test(t)) score += 3;
+  // 23. 反向题标记: 如果题目问'错误/不是/除外', 否定选项反而可能正确
+  // (在answerQuestions中根据题干调整)
+  
   return score;
 }
 
@@ -1526,6 +1545,9 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
     }
     
     // 策略2: 试错 - 从未尝试的选项中选择评分最高的
+    // 检测是否反向题 (问'不是/错误/除外/不正确')
+    var isNegativeQ = /不是|不属于|不包括|不是|错误|除外|不正确|哪项错/.test(qFingerprint);
+    
     if (!chosen) {
       var tried = currentTries[storeKey] || [];
       var candidates = [];
@@ -1539,8 +1561,9 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
       }
       
       if (candidates.length > 0) {
-        // 按智能评分排序
+        // 按智能评分排序 (反向题取最低分, 正向题取最高分)
         candidates.sort(function(a, b) {
+          if (isNegativeQ) return smartScore(a.text) - smartScore(b.text);
           return smartScore(b.text) - smartScore(a.text);
         });
         chosen = candidates[0];
@@ -1558,7 +1581,15 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
     if (chosen) {
       (function(opt) {
         setTimeout(function() {
-          try { opt.el.click(); } catch(e) {}
+          try {
+            // Try clicking the input directly first (more reliable)
+            if (opt.input && !opt.input.checked) {
+              opt.input.checked = true;
+              opt.input.click();
+            } else if (opt.el) {
+              opt.el.click();
+            }
+          } catch(e) { try { opt.el.click(); } catch(e2) {} }
         }, delaySoFar);
       })(chosen);
       delaySoFar += 200 + Math.random() * 300;
@@ -1634,32 +1665,53 @@ function doResult(callback) {
     var ra = Store.g(CONFIG.keys.rightAnswers, {});
     var saved = 0;
     
-    // 从表格解析
+    // 从表格或div解析考试结果
     var tables = document.querySelectorAll("table.tablestyle, table");
     for (var ti = 0; ti < tables.length; ti++) {
       var rows = tables[ti].querySelectorAll("tr");
-      for (var ri = 1; ri < rows.length; ri++) {
+      for (var ri = 0; ri < rows.length; ri++) {
         var cells = rows[ri].querySelectorAll("td");
-        if (cells.length < 3) continue;
+        if (cells.length < 2) continue;
         
         var qText = '';
         var answerText = '';
         var isCorrect = false;
+        var userAnswer = '';
         
         for (var ci = 0; ci < cells.length; ci++) {
           var txt = cells[ci].textContent.trim();
-          if (txt.indexOf('正确') >= 0 || txt === '对') isCorrect = true;
-          if (txt.length > 15 && !txt.match(/^[\d.]+$/) && txt.indexOf('分') === -1) {
+          if (txt.indexOf('正确') >= 0 || txt.indexOf('对') >= 0 || txt === '√' || txt === '✓') isCorrect = true;
+          if (txt.indexOf('错误') >= 0 || txt === '错' || txt === '×') isCorrect = false;
+          // 长文本且非数字/分数 -> 题目或答案
+          if (txt.length > 10 && !txt.match(/^[\d.]+$/) && txt.indexOf('分') === -1 && txt.indexOf('正确') === -1 && txt.indexOf('错误') === -1) {
             if (!qText) qText = txt;
             else if (!answerText) answerText = txt;
+            else if (!userAnswer) userAnswer = txt;
           }
         }
         
-        if (qText && isCorrect && answerText) {
+        // 保存正确答案 (不管本次对错, 从解析中学习)
+        if (qText && answerText) {
           var cleanQ = qText.replace(/^\s*\d+[、.，,\s]+/, '').replace(/\s+/g, ' ').trim().substring(0, 50);
           var cleanA = answerText.replace(/^\s*[A-Za-z][、.，,)\s]+/, '').trim();
-          if (cleanQ && cleanA) { ra[cleanQ] = cleanA; saved++; }
+          if (cleanQ && cleanA) {
+            ra[cleanQ] = cleanA;
+            saved++;
+            if (isCorrect) log('[考试结果] ✓ 保存正确答案: ' + cleanQ.substring(0, 20));
+          }
         }
+      }
+    }
+    
+    // 也尝试从div结构解析
+    var qDivs = document.querySelectorAll('[class*="question"], [class*="ti"], .exam-item');
+    for (var di = 0; di < qDivs.length; di++) {
+      var qText2 = qDivs[di].querySelector('.q_name, .question-text, [class*="title"]');
+      var aText2 = qDivs[di].querySelector('.correct-answer, .right-answer, [class*="correct"], [class*="answer"]');
+      if (qText2 && aText2) {
+        var cq = qText2.textContent.replace(/^\s*\d+[、.，,\s]+/, '').replace(/\s+/g, ' ').trim().substring(0, 50);
+        var ca = aText2.textContent.replace(/^\s*[A-Za-z][、.，,)\s]+/, '').trim();
+        if (cq && ca && !ra[cq]) { ra[cq] = ca; saved++; }
       }
     }
     
