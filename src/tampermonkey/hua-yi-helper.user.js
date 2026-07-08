@@ -659,6 +659,80 @@ var CreditPlanner = {
 // 在课程列表页(course.aspx/cme.aspx)自动扫描待学习课程
 // 优先级: 未学习 > 播放至x%(x<100) > 学习中 > 待考试(仅在full模式)
 // ═══════════════════════════════════════════════════════════════
+
+// ==SmartPlanner Module==
+var HY_PLAN_KEY = "HY_PlanV2";
+var HY_PLAN_IDX = "HY_PlanIdx";
+var HY_DISC_KEY = "HY_Discovered";
+
+var SmartPlanner = {
+  discover: function() {
+    var courses = [];
+    document.querySelectorAll("a[href*="course.aspx?cid="]").forEach(function(a) {
+      var txt = (a.textContent || "").trim();
+      if (txt && txt.length > 2) courses.push({ n: txt, l: a.href });
+    });
+    document.querySelectorAll("input.btn67[value*="继续"]").forEach(function(b) {
+      var oc = b.getAttribute("onclick") || "";
+      var m = oc.match(/["']([^"']*course\.aspx[^"']*)["']/);
+      if (m && m[1]) {
+        var u = m[1];
+        if (u.indexOf("http") < 0) u = location.origin + "/pages/" + u.replace("../pages/", "");
+        courses.push({ n: "继续学习", l: u });
+      }
+    });
+    if (courses.length) { Store.s(HY_DISC_KEY, courses); }
+    return courses;
+  },
+  makePlan: function() {
+    var an = CreditPlanner.analyze();
+    if (!an || an.met) return null;
+    this.discover();
+    var disc = Store.g(HY_DISC_KEY, []);
+    var cand = [];
+    for (var i = 0; i < an.projects.length; i++) {
+      var p = an.projects[i];
+      if (!p.completed) cand.push({ n: p.name, cr: p.credit || 1, st: p.status || "未学习", pb: p.isPublic, lk: p.link || "", src: "exist" });
+    }
+    for (var j = 0; j < disc.length; j++) {
+      var found = false;
+      for (var k = 0; k < cand.length; k++) { if (cand[k].lk === disc[j].l) { found = true; break; } }
+      if (!found) cand.push({ n: disc[j].n, cr: 1, st: "未学习", pb: disc[j].n.indexOf("公需") >= 0, lk: disc[j].l, src: "new" });
+    }
+    cand.sort(function(a, b) {
+      if (a.pb !== b.pb) return a.pb ? -1 : 1;
+      var pa = a.st === "未学习" ? 0 : (a.st || "").indexOf("播放至") >= 0 ? 1 : a.st === "学习中" ? 2 : 3;
+      var pb = b.st === "未学习" ? 0 : (b.st || "").indexOf("播放至") >= 0 ? 1 : b.st === "学习中" ? 2 : 3;
+      return pa - pb || (b.cr || 0) - (a.cr || 0);
+    });
+    var tasks = [], acc = 0, np = an.publicRemaining, no = an.otherRemaining, tr = an.totalRemaining;
+    for (var i = 0; i < cand.length && acc < tr; i++) {
+      var c = cand[i];
+      if (c.pb && np <= 0) continue;
+      if (!c.pb && no <= 0) continue;
+      tasks.push({ n: c.n, cr: c.cr, st: c.st, lk: c.lk, pb: c.pb, act: c.st === "待考试" ? "exam" : "learn" });
+      acc += c.cr;
+      if (c.pb) np -= c.cr; else no -= c.cr;
+    }
+    var plan = { tasks: tasks, met: false, acc: acc, need: tr };
+    Store.s(HY_PLAN_KEY, plan);
+    Store.s(HY_PLAN_IDX, 0);
+    return plan;
+  },
+  start: function() {
+    var plan = Store.g(HY_PLAN_KEY, null);
+    if (!plan || !plan.tasks || !plan.tasks.length) return;
+    var idx = Store.g(HY_PLAN_IDX, 0);
+    if (idx >= plan.tasks.length) return;
+    var t = plan.tasks[idx];
+    if (t.lk) { window.location.href = t.lk; }
+    else { Store.s(HY_PLAN_IDX, idx + 1); this.start(); }
+  },
+  complete: function() {
+    var idx = Store.g(HY_PLAN_IDX, 0);
+    Store.s(HY_PLAN_IDX, idx + 1);
+  }
+};
 function autoScanCourses() {
   // 安全保护：只在明确的课程相关页面运行
   if (!URL.isCourseList && !URL.isCourseDetail && !URL.isStudyList && !URL.isFME && URL.full.indexOf('cme/index') === -1) {
