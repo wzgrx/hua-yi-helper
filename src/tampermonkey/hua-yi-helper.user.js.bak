@@ -1,0 +1,6 @@
+// ==UserScript==
+// @name         TEST
+// @match        *://*.91huayi.com/*
+// @grant        none
+// ==/UserScript==
+console.log("test: \n backslash: \\ regex: \s+");

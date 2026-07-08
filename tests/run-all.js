@@ -53,7 +53,7 @@ if (fs.existsSync(usPath)) {
   assert(content.includes('==UserScript=='), '包含 ==UserScript== 头');
   assert(content.includes('@match'), '包含 @match 声明');
   assert(content.includes('@version      3.0.2'), '版本号 v3.0.2');
-  assert(content.includes('@run-at       document-start'), 'document-start 运行');
+  assert(content.includes('@run-at       document-idle'), 'document-idle 运行');
   assert(content.includes('@grant        GM_getValue'), 'GM_getValue 授权');
   assert(content.includes('CreditPlanner'), '包含学分规划器');
   assert(content.includes('Smart Credit Planner'), '包含学分规划器注释');

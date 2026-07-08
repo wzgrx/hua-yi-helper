@@ -12,7 +12,7 @@
 // @grant        GM_listValues
 // @grant        GM_addStyle
 // @grant        GM_info
-// @run-at       document-start
+// @run-at       document-idle
 // @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js
 // @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
@@ -88,16 +88,6 @@ var HY_HISTORY = [
     };
   } catch(e) {}
 
-  var _origConsole = window.console;
-  // 锁死console对象，防止页面脚本篡改
-  try {
-    Object.defineProperty(window, 'console', {
-      get: function() { return _origConsole; },
-      set: function() {},
-      configurable: false
-    });
-  } catch(e) {}
-
   function _safeLog() {
     try { window.__HY_rawConsole.log.apply(null, arguments); } catch(e2) {}
   }
@@ -108,68 +98,6 @@ var HY_HISTORY = [
     window.blockAbnormalPlugin = function() {};
     _safeLog('[HY] 已抢先覆盖 blockAbnormalPlugin');
   } catch(e) {}
-
-  // === 二级防御: 拦截Object.defineProperty防止页面重新定义 ===
-  var _origDP = Object.defineProperty;
-  Object.defineProperty = function(obj, prop, desc) {
-    if (obj === window && (prop === 'blockAbnormalPlugin' || prop === '__HY_READY__')) {
-      _safeLog('[HY] 已拦截 ' + prop + ' 的defineProperty');
-      return window;
-    }
-    return _origDP.apply(this, arguments);
-  };
-
-  // === 三级防御: 拦截addEventListener中的反脚本检测 ===
-  var _origAEL = EventTarget.prototype.addEventListener;
-  EventTarget.prototype.addEventListener = function(type, listener, options) {
-    var lStr = String(listener);
-
-    // 拦截右键菜单禁用（仅匹配 return false 模式，不拦截所有 contextmenu）
-    if (type === 'contextmenu' && lStr.indexOf('return false') !== -1) {
-      _safeLog('[HY] 已拦截右键屏蔽');
-      return;
-    }
-
-    // 拦截反脚本click检测（仅当同时出现 isTrusted + blockAbnormal 时才拦截）
-    if (this === document && type === 'click' && lStr.indexOf('isTrusted') !== -1 && 
-        (lStr.indexOf('blockAbnormalPlugin') !== -1 || lStr.indexOf('blockAbnormal') !== -1)) {
-      _safeLog('[HY] 已拦截反脚本click检测');
-      return;
-    }
-
-    // 拦截页面加载时的反脚本监听
-    if (this === window && type === 'load' && lStr.indexOf('blockAbnormalPlugin') !== -1) {
-      _safeLog('[HY] 已拦截blockAbnormalPlugin的load监听');
-      return;
-    }
-
-    return _origAEL.call(this, type, listener, options);
-  };
-
-  // === 四级防御: 拦截setInterval/setTimeout中的反脚本检测 ===
-  var _origSI = window.setInterval;
-  window.setInterval = function(cb, delay) {
-    var s = String(cb);
-    if (s.indexOf('blockAbnormalPlugin') !== -1 && s.indexOf('ratePlayLimitNum') !== -1) {
-      _safeLog('[HY] 已拦截倍速检测定时器');
-      return 0;
-    }
-    if (s.indexOf('queryIsAuth') !== -1) {
-      _safeLog('[HY] 已拦截人脸认证检测');
-      return 0;
-    }
-    return _origSI.apply(this, arguments);
-  };
-
-  var _origST = window.setTimeout;
-  window.setTimeout = function(cb, delay) {
-    var s = String(cb);
-    if (s.indexOf('blockAbnormalPlugin') !== -1) {
-      _safeLog('[HY] 已拦截反脚本setTimeout');
-      return 0;
-    }
-    return _origST.apply(this, arguments);
-  };
 
   // === 五级防御: MutationObserver监听body，清除页面限制属性 ===
   if (typeof MutationObserver !== 'undefined') {
@@ -2276,21 +2204,4 @@ if (document.readyState === 'loading') {
 }
 
 } // __HY_main 结束
-
-// DOMContentLoaded启动
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', function() {
-    try {
-      if (typeof __HY_main === 'function') __HY_main();
-    } catch(e) {
-      console.log('[HYv3] 初始化错误: ' + e.message);
-    }
-  });
-} else {
-  try {
-    if (typeof __HY_main === 'function') __HY_main();
-  } catch(e) {
-    console.log('[HYv3] 初始化错误: ' + e.message);
-  }
- }
 
