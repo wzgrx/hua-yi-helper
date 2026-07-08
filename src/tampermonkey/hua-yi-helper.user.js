@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      4.0.2
+// @version      4.1.0
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -113,7 +113,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "4.0.2";
+var HY_VERSION = "4.1.0";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -756,32 +756,31 @@ var CreditPlanner = {
     }
     
     // 从未完成课程中筛选 (包括'学习完毕'但未申请证书的)
-    var unfinished = analysis.courses.filter(function(c) { return !c.completed; });
+    var unfinished = analysis.courses.filter(function(c) {
+      return !c.completed && !c.needsCertificate; // Skip 已申请 and 申请证书(needs 卡密)
+    });
     
-    // v4.0.0: Smart selection based on ACTION needed (from study record col 7)
-    // Priority: needsCertificate (just click apply, instant) > needsExam > high progress > low progress
+    // v4.1.0: 证书申请需要卡密, 不自动操作, 跳过这些课程
+    // 选课优先级: 高进度 > 低进度, 剩余课件少的优先
+    // v4.0.0: Smart selection based on progress
     unfinished.sort(function(a, b) {
-      // 1. needsCertificate = just apply certificate, fastest action
-      var aCert = a.needsCertificate ? 0 : 1;
-      var bCert = b.needsCertificate ? 0 : 1;
-      if (aCert !== bCert) return aCert - bCert;
-      
-      // 2. needsExam = need to take exam, second fastest
+      // v4.1.0: 证书课程已过滤, 排序按进度和剩余课件
+      // 1. needsExam = need to take exam (学习完毕 but no 申请证书 button)
       var aExam = a.needsExam ? 0 : 1;
       var bExam = b.needsExam ? 0 : 1;
       if (aExam !== bExam) return aExam - bExam;
       
-      // 3. Higher progress % = closer to completion
+      // 2. Higher progress % = closer to completion
       var aPct = a.progressPct || 0;
       var bPct = b.progressPct || 0;
       if (aPct !== bPct) return bPct - aPct;
       
-      // 4. Fewer remaining coursewares = faster to finish
+      // 3. Fewer remaining coursewares = faster to finish
       var aRem = (a.progressTotal || 999) - (a.progressDone || 0);
       var bRem = (b.progressTotal || 999) - (b.progressDone || 0);
       if (aRem !== bRem) return aRem - bRem;
       
-      // 5. Higher credit = better value
+      // 4. Higher credit = better value
       return b.credit - a.credit;
     });
     
@@ -1547,70 +1546,25 @@ var SmartEngine = {
   
   // 处理申请证书页 (apply_certificate.aspx)
   handleCertificateApply: function() {
-    log('[引擎] 申请证书页加载...');
-    this.updateUI('navigating', '申请证书中...');
-    this._running = true;
+    log('[引擎] 申请证书页 - 需要卡密, 跳过此课程');
+    log('[引擎] 证书申请需要卡密(card key), 不自动操作');
     var self = this;
-    
     setTimeout(function() {
-      if (!self._running) return;
-      
-      // Look for the certificate application button/submit button
-      var submitBtn = null;
-      var btns = document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn');
-      for (var i = 0; i < btns.length; i++) {
-        var t = (btns[i].value || btns[i].textContent || '').trim();
-        if (t.indexOf('申请') >= 0 || t.indexOf('确认') >= 0 || t.indexOf('提交') >= 0 || t.indexOf('确定') >= 0) {
-          submitBtn = btns[i];
-          break;
+      self.nextTask();
+      self._running = false;
+      setTimeout(function() {
+        var nextTask = self.getCurrentTask();
+        if (nextTask && nextTask.url) {
+          log('[引擎] 跳过证书申请, 进入下一个任务: ' + nextTask.name);
+          self._running = true;
+          safeNavigate(nextTask.url);
+        } else {
+          log('[引擎] 所有任务完成, 返回学习记录页');
+          safeNavigate('/pages/study_info_list.aspx');
         }
-      }
-      
-      if (submitBtn) {
-        log('[引擎] 点击申请证书按钮: ' + ((submitBtn.value || submitBtn.textContent || '').trim()));
-        try { submitBtn.click(); } catch(e) {}
-        
-        // After clicking, wait for confirmation and navigate to next task
-        setTimeout(function() {
-          // Check for confirmation dialog
-          var confirmBtn = document.querySelector('input[value*="确认"], input[value*="确定"], button:contains("确认")');
-          if (confirmBtn) {
-            try { confirmBtn.click(); } catch(e) {}
-          }
-          
-          // Navigate to next task or study record
-          self.nextTask();
-          self._running = false;
-          setTimeout(function() {
-            var nextTask = self.getCurrentTask();
-            if (nextTask && nextTask.url) {
-              log('[引擎] 证书申请完成, 进入下一个任务: ' + nextTask.name);
-              self._running = true;
-              safeNavigate(nextTask.url);
-            } else {
-              log('[引擎] 所有任务完成, 返回学习记录页');
-              safeNavigate('/pages/study_info_list.aspx');
-            }
-          }, 3000);
-        }, 3000);
-      } else {
-        // No submit button found - may already be applied or page is different
-        log('[引擎] 未找到申请按钮, 可能已申请, 进入下一个任务');
-        self.nextTask();
-        self._running = false;
-        setTimeout(function() {
-          var nextTask = self.getCurrentTask();
-          if (nextTask && nextTask.url) {
-            self._running = true;
-            safeNavigate(nextTask.url);
-          } else {
-            safeNavigate('/pages/study_info_list.aspx');
-          }
-        }, 3000);
-      }
-    }, 2000);
+      }, 2000);
+    }, 1000);
   },
-  
   // 更新UI状态
   updateUI: function(state, label) {
     try {
