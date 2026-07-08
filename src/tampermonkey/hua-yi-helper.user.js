@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      3.3.0
+// @version      3.4.0
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -82,7 +82,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.3.0";
+var HY_VERSION = "3.4.0";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -106,7 +106,7 @@ var HY_HISTORY = [
 // 1. 配置与存储
 // ═══════════════════════════════════════════════════════════════
 var CONFIG = {
-  targetYear: 2025,
+  targetYear: new Date().getFullYear(),
   targetTotal: 25,
   publicTarget: 5,
   otherTarget: 20,
@@ -314,20 +314,23 @@ function cleanupRestrictions() {
 // 弹窗杀手 - 处理疲劳/温馨提示/防刷题弹窗
 function killPopups() {
   try {
-    // 通用弹窗关闭按钮检测
+    // Close popup buttons but AVOID anti-cheat trapped buttons
+    // Anti-cheat detects non-trusted clicks on .layer_tips .rig_btn, .study_diaog .btn_sign
     var allBtns = document.querySelectorAll('button, input[type="button"], a.btn, .ui-button');
     for (var i = 0; i < allBtns.length; i++) {
       var txt = (allBtns[i].textContent || allBtns[i].value || '').trim();
       if (['知道了', '确定', '关闭', '继续', '是', '否', '我再想想'].indexOf(txt) >= 0) {
+        // Skip if inside anti-cheat trap zone
+        if (allBtns[i].closest('.study_diaog') && allBtns[i].closest('.btn_sign')) continue;
+        if (allBtns[i].closest('.layer_tips') && allBtns[i].closest('.rig_btn')) continue;
         allBtns[i].click();
       }
     }
-    // 隐藏弹窗
+    // Hide popups by setting display none (safer than clicking)
     var popups = document.querySelectorAll('.layui-layer, .dialog_box, [class*="popup"], [class*="modal"], [class*="overlay"]');
     for (var j = 0; j < popups.length; j++) {
       if (popups[j].style.display !== 'none') {
-        var closeBtn = popups[j].querySelector('.layui-layer-close, [class*="close"], button, .rig_btn, .lef_btn');
-        if (closeBtn) { closeBtn.click(); } else { popups[j].style.display = 'none'; }
+        popups[j].style.display = 'none';
       }
     }
   } catch(e) {}
@@ -747,6 +750,16 @@ var CreditPlanner = {
   resetPlan: function() {
     Store.s(HY_PLAN_IDX, 0);
     log('[学分] 计划已重置');
+  },
+  
+  showQuickStatus: function(analysis) {
+    try {
+      var dot = document.getElementById('HY_statusDot');
+      var lbl = document.getElementById('HY_statusLabel');
+      if (lbl) {
+        lbl.textContent = analysis.totalEarned + '/' + analysis.targetTotal + '分';
+      }
+    } catch(e) {}
   }
 };
 
@@ -796,25 +809,59 @@ var SmartEngine = {
       log('[引擎] 已在运行中');
       return;
     }
-    var task = this.getCurrentTask();
-    if (!task) {
-      log('[引擎] 无待执行任务, 尝试生成计划');
-      var analysis = CreditPlanner.analyze();
-      if (analysis) {
-        var plan = CreditPlanner.generatePlan(analysis);
-        if (plan && plan.tasks.length > 0) {
-          task = this.getCurrentTask();
-        }
-      }
-    }
-    if (!task) {
-      log('[引擎] 无法生成计划, 请先扫描课程');
-      return;
-    }
     this._running = true;
     log('[引擎] === 开始执行 ===');
-    this.showTasks();
-    this.navigateToTask(task);
+    this.updateUI('navigating', '正在启动...');
+    
+    // If we have an existing plan with pending tasks, resume it
+    var task = this.getCurrentTask();
+    if (task) {
+      log('[引擎] 恢复现有计划');
+      this.showTasks();
+      this.navigateToTask(task);
+      return;
+    }
+    
+    // No existing plan - need to go to course list to scan and generate one
+    // Navigate to the Vue SPA course list page first
+    if (!URL.isVueSPA() && !URL.isCME && !URL.isStudyList) {
+      log('[引擎] 当前页面无法扫描课程, 跳转到课程列表页');
+      Store.s('__HY_startRequested', true);
+      safeNavigate('/cme/index');
+      return;
+    }
+    
+    // We are on a course list page - try to generate plan
+    var self = this;
+    setTimeout(function() {
+      var analysis = CreditPlanner.analyze();
+      if (analysis) {
+        log('[学分] 已获: ' + analysis.totalEarned + '/' + analysis.targetTotal +
+            ' (公需' + analysis.publicEarned + '/' + analysis.publicTarget +
+            ' 其他' + analysis.otherEarned + '/' + analysis.otherTarget + ')');
+        if (analysis.met) {
+          log('[引擎] 学分已达标, 无需继续');
+          self._running = false;
+          self.updateUI('done');
+          return;
+        }
+        var plan = CreditPlanner.generatePlan(analysis);
+        if (plan && plan.tasks.length > 0) {
+          self.showTasks();
+          var newTask = self.getCurrentTask();
+          if (newTask) self.navigateToTask(newTask);
+        } else {
+          log('[引擎] 无法生成计划 (可能课程已全部完成或学分已达标)');
+          self._running = false;
+          self.updateUI('done');
+        }
+      } else {
+        log('[引擎] 无法分析学分, 重试中...');
+        setTimeout(function() {
+          if (self._running) self.start();
+        }, 3000);
+      }
+    }, 2000);
   },
   
   // 暂停
@@ -1714,13 +1761,15 @@ function createControlPanel() {
   btnRow1.style.cssText = "display:flex;gap:4px;margin-bottom:4px;";
   
   var makePlanBtn = createBtn('\u{1F3AF} 计划', '#1565C0', function() {
-    if (!URL.isCME && !URL.isStudyList && !URL.isVueSPA()) {
+    if (!URL.isVueSPA() && !URL.isCME && !URL.isStudyList) {
       log('[UI] 跳转到课程列表页生成计划...');
-      window.location.href = '/pages/cme.aspx';
+      Store.s('__HY_startRequested', true);
+      safeNavigate('/cme/index');
       return;
     }
     var analysis = CreditPlanner.analyze();
     if (analysis) {
+      log('[学分] 已获: ' + analysis.totalEarned + '/' + analysis.targetTotal);
       var plan = CreditPlanner.generatePlan(analysis);
       if (plan) log('[UI] 计划已生成: ' + plan.tasks.length + ' 个任务');
       SmartEngine.showTasks();
@@ -1728,11 +1777,6 @@ function createControlPanel() {
   });
   
   var startBtn = createBtn('\u25B6 执行', '#2e7d32', function() {
-    if (!URL.isCME && !URL.isStudyList && !URL.isVueSPA()) {
-      log('[UI] 跳转到课程列表页...');
-      window.location.href = '/pages/cme.aspx';
-      return;
-    }
     SmartEngine.start();
   });
   
@@ -1773,7 +1817,7 @@ function createControlPanel() {
   // Log area
   var logArea = document.createElement("div");
   logArea.id = "HY_log";
-  logArea.style.cssText = "display:none;background:rgba(0,0,0,.7);color:#0f0;" +
+  logArea.style.cssText = "display:block;background:rgba(0,0,0,.7);color:#0f0;" +
     "padding:6px;border-radius:4px;max-height:180px;overflow-y:auto;" +
     "font-family:monospace;font-size:10px;margin-top:6px;white-space:pre-wrap;line-height:1.4;";
   
@@ -1953,8 +1997,10 @@ function mainRouter() {
           log('[学分] 缺口: ' + analysis.totalRemaining + '分 (公需' + analysis.publicRemaining + ', 其他' + analysis.otherRemaining + ')');
           CreditPlanner.showQuickStatus(analysis);
           if (!SmartEngine._running) {
-            log('[引擎] 发现课程, 自动开始执行计划');
-            SmartEngine.start();
+            if (Store.g('__HY_startRequested', false) || true) {
+              log('[引擎] 发现课程, 自动开始执行计划');
+              SmartEngine.start();
+            }
           }
         } else if (!analysis || analysis.total === 0) {
           retryCount++;
