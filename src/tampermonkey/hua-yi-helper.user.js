@@ -1085,10 +1085,10 @@ var SmartEngine = {
         if (jrksBtn && jrksBtn.style.display !== 'none') {
           log('[引擎] 检测到进入考试, 进入考试');
           clearInterval(checkTimer);
-          if (jrksBtn.tagName === 'A' && jrksBtn.href) {
+          if (jrksBtn.href && jrksBtn.href !== location.href) {
             window.location.href = jrksBtn.href;
           } else {
-            jrksBtn.click();
+            try { jrksBtn.click(); } catch(e) {}
           }
           return;
         }
