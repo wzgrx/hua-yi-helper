@@ -127,4 +127,30 @@ console.log(`\n========================================`);
 console.log(`  结果: ${passed} 通过, ${failed} 失败`);
 console.log(`========================================`);
 
+// exit moved to end
+
+
+// 9. 新增函数检查 (2026年改版适配)
+console.log('\n🔍 2026新版适配检查:');
+if (fs.existsSync(usPath)) {
+  const content = fs.readFileSync(usPath, 'utf8');
+  assert(content.includes('scanNewCourseList'), '包含新版课程扫描函数');
+  assert(content.includes('handleCourseListNew'), '包含新版课程列表处理函数');
+  assert(content.includes('scanRecommendedCourses'), '包含推荐课程扫描函数');
+  assert(content.includes('input.btn67'), '包含新版按钮选择器');
+  assert(content.includes('isFME'), '包含FME页面识别');
+  assert(content.includes('isCmeIndex'), '包含Vue SPA页面识别');
+  assert(content.includes('.tip-bar'), '包含新版提示栏选择器');
+  assert(content.includes('.pv-video-player'), '包含新版Polyv播放器选择器');
+}
+
+// 10. Hermes新版适配检查
+console.log('\n🔍 Hermes新版适配检查:');
+const ppPath = path.join(__dirname, '..', 'src/hermes/lib/page-processor.js');
+if (fs.existsSync(ppPath)) {
+  const content = fs.readFileSync(ppPath, 'utf8');
+  assert(content.includes('btn67'), 'Hermes包含新版按钮选择器');
+  assert(content.includes('course.aspx?cid='), 'Hermes包含新版课程链接选择器');
+}
+
 process.exit(failed > 0 ? 1 : 0);

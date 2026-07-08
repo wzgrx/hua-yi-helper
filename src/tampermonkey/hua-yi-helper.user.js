@@ -259,6 +259,8 @@ var URL = (function() {
     last: last,
     isStudyList: last === 'study_info_list.aspx',
     isCourseList: last === 'course.aspx' || last === 'cme.aspx',
+    isFME: last === 'fme.aspx',
+    isCmeIndex: href.indexOf('/cme/index') !== -1,
     isPolyv: last === 'course_ware_polyv.aspx',
     isCC: last === 'course_ware_cc.aspx',
     isExam: last === 'exam.aspx' || last === 'exam_code.aspx',
@@ -872,10 +874,11 @@ var _pauseWatchTimer = null;
 function seeVideo(playerType) {
   log('[视频] 页面加载, 等待播放器...');
 
-  // 迁移Div1（老版兼容）
+  // 2026新版: 视频容器是#video, no longer Div1
+  // 尝试隐藏顶部tip-bar（如果有遮挡）
   try {
-    var div1 = document.querySelector('div[id="Div1"]');
-    if (div1) div1.style.top = '40px';
+    var tipBar = document.querySelector('.tip-bar');
+    if (tipBar) tipBar.style.display = 'none';
   } catch(e) {}
 
   // 恢复console（某些页面脚本会覆盖）
@@ -938,11 +941,14 @@ function initPlayer(playerType) {
       // 检测播放器就绪
       var playerReady_ = false;
 
-      // Polyv播放器
+      // Polyv播放器 (2026新版: HTML5播放器, 检查video元素即可)
       if (typeof player !== 'undefined' && player !== null) {
         playerReady_ = true;
       }
-
+      // Polyv新版: 检查pv-video-player容器
+      if (document.querySelector('.pv-video-player, .pv-video')) {
+        playerReady_ = true;
+      }
       // CC播放器
       if (typeof ccPlayer !== 'undefined' && ccPlayer !== null) {
         playerReady_ = true;
@@ -1833,9 +1839,13 @@ function mainRouter() {
     log('[路由] 学习记录页 → 运行学分规划');
     handleStudyList();
   }
-  else if (URL.isCourseList) {
-    log('[路由] 课程列表页 → 自动扫描课程');
-    handleCourseList();
+  else if (URL.isCourseList || URL.full.indexOf('cme/index') !== -1) {
+    log('[路由] 课程列表页(新版) → 自动扫描课程');
+    handleCourseListNew();
+  }
+  else if (URL.full.indexOf('fme.aspx') !== -1) {
+    log('[路由] 全员专项页面');
+    handleCourseListNew();
   }
   else {
     log('[路由] 其他页面');
@@ -1880,24 +1890,77 @@ function handleStudyList() {
 // 课程列表页处理
 function handleCourseList() {
   log('[课程扫描] 开始扫描课程...');
-
-  // 等待页面加载完成
   setTimeout(function() {
-    // 显示学分状态（如果有保存的计划）
     var plan = Store.get(CONFIG.keys.currentPlan);
-    if (plan) {
-      log('[课程扫描] 当前计划: ' + (plan.summary || ''));
-    }
-
-    // 运行自动扫描
+    if (plan) log('[课程扫描] 当前计划: ' + (plan.summary || ''));
     var found = autoScanCourses();
+    if (!found) log('[课程扫描] 无可用课程, 检查学分状态');
+  }, 2000);
+}
+
+// 新版课程列表页处理 (2026年改版: cme.aspx新布局)
+function handleCourseListNew() {
+  log('[课程扫描-新版] 开始扫描课程...');
+  setTimeout(function() {
+    var plan = Store.get(CONFIG.keys.currentPlan);
+    if (plan) log('[课程扫描] 当前计划: ' + (plan.summary || ''));
+    var found = scanNewCourseList();
     if (!found) {
-      // 没有可学习的课程, 尝试进入学习记录页
-      log('[课程扫描] 无可用课程, 检查学分状态');
-      // 如果有计划但当前页面没课程, 可能已完成
-      // 不自动跳转, 让用户手动查看
+      log('[课程扫描-新版] 无可用课程, 扫描推荐项目');
+      scanRecommendedCourses();
     }
   }, 2000);
+}
+
+// 新版课程扫描: cme.aspx的.index-main-right学习记录表
+function scanNewCourseList() {
+  log('[课程扫描-新版] 扫描学习记录表...');
+
+  // 方式1: 查找input.btn67继续学习按钮
+  var continueBtns = document.querySelectorAll('input.btn67[value*="继续"]');
+  if (continueBtns.length > 0) {
+    log('[课程扫描-新版] 找到' + continueBtns.length + '个继续学习按钮');
+    var btn = continueBtns[0];
+    var onclick = btn.getAttribute('onclick') || '';
+    var urlMatch = onclick.match(/["']([^"']*course\.aspx[^"']*)["']/);
+    if (urlMatch && urlMatch[1]) {
+      var url = urlMatch[1];
+      if (url.indexOf('http') === -1) url = window.location.origin + '/pages/' + url.replace('../pages/', '');
+      log('[课程扫描-新版] 通过onclick跳转: ' + url);
+      window.location.href = url;
+      return true;
+    }
+    btn.click(); return true;
+  }
+
+  // 方式2: 查找学习记录表中的课程链接
+  var courseLinks = document.querySelectorAll('td a[href*="course.aspx?cid="]');
+  if (courseLinks.length > 0) {
+    log('[课程扫描-新版] 找到' + courseLinks.length + '个课程链接');
+    courseLinks[0].click(); return true;
+  }
+
+  // 方式3: 宽松匹配继续学习按钮
+  var allBtns = document.querySelectorAll('button, input[type="button"], a.btn');
+  for (var i = 0; i < allBtns.length; i++) {
+    var txt = allBtns[i].value || allBtns[i].textContent || '';
+    if (txt.indexOf('继续学习') !== -1 || txt.indexOf('继续') !== -1) {
+      log('[课程扫描-新版] 找到继续学习按钮: ' + txt);
+      allBtns[i].click(); return true;
+    }
+  }
+  return false;
+}
+
+// 扫描推荐课程区域
+function scanRecommendedCourses() {
+  log('[课程扫描-新版] 扫描推荐课程...');
+  var recLinks = document.querySelectorAll('#tab_courses a.f14blue[href*="course.aspx?cid="]');
+  if (recLinks.length > 0) { recLinks[0].click(); return true; }
+  var allCourseLinks = document.querySelectorAll('a[href*="course.aspx?cid="]');
+  if (allCourseLinks.length > 0) { allCourseLinks[0].click(); return true; }
+  log('[课程扫描-新版] 未找到可用课程');
+  return false;
 }
 
 // 人脸认证页面处理
@@ -1972,4 +2035,175 @@ if (document.readyState === 'loading') {
   } catch(e) {
     console.log('[HYv3] 初始化错误: ' + e.message);
   }
+}
+// ═══════════════════════════════════════════════════════════════
+// 8. 主路由 - 页面类型分发 (Updated for 2026 site layout)
+// ═══════════════════════════════════════════════════════════════
+function mainRouter() {
+  log('[路由] 当前页面: ' + URL.last);
+
+  // 创建UI控件
+  createControlPanel();
+
+  // 如果是error页面, 等待后刷新
+  if (URL.isError) {
+    log('[路由] 错误页面, 15秒后刷新');
+    setTimeout(function() { location.reload(); }, 15000);
+    showControlPanel();
+    return;
+  }
+
+  // 适配标识
+  try {
+    var tixing = document.getElementById('tixing');
+    if (tixing) {
+      tixing.innerHTML = '✅ 华医网小助手 v' + HY_VERSION + ' 已适配 | ' +
+        '<span style="color:#4cb0f9;">智能学分规划 · 全自动刷课</span>';
+    }
+  } catch(e) {}
+
+  // 显示控制面板
+  showControlPanel();
+
+  // 显示启动横幅
+  showBanner();
+
+  // 按页面类型分发
+  // 2026年新版: course.aspx会直接重定向到course_ware_polyv.aspx
+  // 新增: fme.aspx全员专项, /cme/index 和 /cme/index.html Vue SPA
+  if (URL.isFace) {
+    log('[路由] 人脸认证页面');
+    handleFacePage();
+  }
+  else if (URL.isVideo) {
+    log('[路由] 视频播放页面');
+    var playerType = URL.isPolyv ? 1 : 2;
+    seeVideo(playerType);
+  }
+  else if (URL.isExam) {
+    log('[路由] 考试页面');
+    cleanupRestrictions();
+    // 延迟等待题目加载
+    setTimeout(function() { doExam(); }, 1500);
+  }
+  else if (URL.isExamResult) {
+    log('[路由] 考试结果页面');
+    doResult();
+  }
+  else if (URL.isStudyList) {
+    log('[路由] 学习记录页 → 运行学分规划');
+    handleStudyList();
+  }
+  else if (URL.isCourseList || URL.full.indexOf('cme/index') !== -1 || URL.full.indexOf('cme/index.html') !== -1) {
+    log('[路由] 课程列表页(新版) → 自动扫描课程');
+    handleCourseListNew();
+  }
+  else if (URL.full.indexOf('fme.aspx') !== -1) {
+    log('[路由] 全员专项页面');
+    handleCourseListNew();
+  }
+  else {
+    log('[路由] 其他页面');
+    if (URL.full.indexOf('main.aspx') !== -1 ||
+        URL.full.indexOf('default.aspx') !== -1) {
+      log('[路由] 首页/主页面');
+    }
+  }
+}
+
+// 新版课程列表页处理 (2026年改版)
+function handleCourseListNew() {
+  log('[课程扫描-新版] 开始扫描课程...');
+  
+  // 等待页面加载完成
+  setTimeout(function() {
+    // 显示学分状态
+    var plan = Store.get(CONFIG.keys.currentPlan);
+    if (plan) {
+      log('[课程扫描] 当前计划: ' + (plan.summary || ''));
+    }
+
+    // 方法1: 扫描学习记录表（cme.aspx的主内容区）
+    var found = scanNewCourseList();
+    if (!found) {
+      log('[课程扫描-新版] 学习记录表无可用课程, 扫描推荐项目');
+      scanRecommendedCourses();
+    }
+  }, 2000);
+}
+
+// 新版课程扫描: 在cme.aspx的.index-main-right中查找学习记录表
+function scanNewCourseList() {
+  log('[课程扫描-新版] 扫描学习记录表...');
+  
+  var clicked = false;
+  
+  // 查找所有"继续学习"按钮 - 在新版中,这些是input.btn67
+  var continueBtns = document.querySelectorAll('input.btn67[value="继续学习"], input.btn67[value*="继续"]');
+  if (continueBtns.length > 0) {
+    log('[课程扫描-新版] 找到' + continueBtns.length + '个"继续学习"按钮');
+    // 点击第一个
+    var btn = continueBtns[0];
+    var onclick = btn.getAttribute('onclick') || '';
+    // 从onclick提取URL (例: javascript:window.open('course.aspx?cid=XX'))
+    var urlMatch = onclick.match(/['"]([^'"]*course\.aspx[^'"]*)['"]/);
+    if (urlMatch && urlMatch[1]) {
+      var url = urlMatch[1];
+      // 处理相对路径
+      if (url.indexOf('http') === -1) {
+        url = window.location.origin + '/pages/' + url.replace('../pages/', '');
+      }
+      log('[课程扫描-新版] 通过onclick跳转: ' + url);
+      window.location.href = url;
+      return true;
+    }
+    // 回退: 直接点击按钮
+    btn.click();
+    return true;
+  }
+  
+  // 查找学习记录表中的课程链接
+  var courseLinks = document.querySelectorAll('.index-main-right td a[href*="course.aspx?cid="]');
+  if (courseLinks.length > 0) {
+    log('[课程扫描-新版] 找到' + courseLinks.length + '个课程链接');
+    courseLinks[0].click();
+    return true;
+  }
+  
+  // 查找任意包含"继续学习"的按钮 (宽松匹配)
+  var allBtns = document.querySelectorAll('button, input[type="button"], a.btn');
+  for (var i = 0; i < allBtns.length; i++) {
+    var txt = allBtns[i].value || allBtns[i].textContent || '';
+    if (txt.indexOf('继续学习') !== -1 || txt.indexOf('继续') !== -1) {
+      log('[课程扫描-新版] 找到继续学习按钮: ' + txt);
+      allBtns[i].click();
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// 扫描推荐课程区域
+function scanRecommendedCourses() {
+  log('[课程扫描-新版] 扫描推荐课程...');
+  
+  // 在"我的课堂"区域查找课程链接
+  var recLinks = document.querySelectorAll('#tab_courses a.f14blue[href*="course.aspx?cid="]');
+  if (recLinks.length > 0) {
+    log('[课程扫描-新版] 找到' + recLinks.length + '个推荐课程');
+    recLinks[0].click();
+    return true;
+  }
+  
+  // 全局查找课程链接(宽松匹配)
+  var allCourseLinks = document.querySelectorAll('a[href*="course.aspx?cid="]');
+  if (allCourseLinks.length > 0) {
+    log('[课程扫描-新版] 全局找到课程链接');
+    allCourseLinks[0].click();
+    return true;
+  }
+  
+  log('[课程扫描-新版] 未找到可用课程');
+  return false;
 }

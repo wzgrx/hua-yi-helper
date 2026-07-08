@@ -230,12 +230,38 @@ class PageProcessor {
     return result.isPass;
   }
 
-  // 课程列表处理
+    // 课程列表处理 (支持新版cme.aspx布局)
   async processCourseList(page) {
     console.log('[PageProcessor] 扫描课程列表...');
-
     await page.waitForTimeout(2000);
 
+    // 方式1: 查找新版btn67继续学习按钮
+    const foundBtn = await page.evaluate(() => {
+      var btns = document.querySelectorAll('input.btn67[value*="继续"]');
+      if (btns.length > 0) {
+        var onclick = btns[0].getAttribute('onclick') || '';
+        var m = onclick.match(/["']([^"']*course\\.aspx[^"']*)["']/);
+        if (m && m[1]) {
+          var url = m[1];
+          if (url.indexOf('http') === -1) url = window.location.origin + '/pages/' + url.replace('../pages/', '');
+          window.location.href = url;
+          return true;
+        }
+        btns[0].click(); return true;
+      }
+      return false;
+    });
+    if (foundBtn) { console.log('[PageProcessor] 通过新版按钮进入课程'); await page.waitForTimeout(5000); return true; }
+
+    // 方式2: 查找学习记录表链接
+    const foundLink = await page.evaluate(() => {
+      var links = document.querySelectorAll('td a[href*="course.aspx?cid="]');
+      if (links.length > 0) { links[0].click(); return true; }
+      return false;
+    });
+    if (foundLink) { console.log('[PageProcessor] 通过课程链接进入'); await page.waitForTimeout(5000); return true; }
+
+    // 方式3: 传统扫描(兼容旧版)
     const found = await page.evaluate(() => {
       function findLink(el) {
         if (el.tagName === 'A' && el.href) return el;
@@ -252,10 +278,8 @@ class PageProcessor {
         }
         return null;
       }
-
       const priorities = ['未学习', '学习中', '待考试'];
       const allEls = document.querySelectorAll('button, input[type="button"], span, div, td');
-
       for (const p of priorities) {
         for (const el of allEls) {
           const txt = (el.textContent || el.value || '').trim();
@@ -268,16 +292,11 @@ class PageProcessor {
       }
       return false;
     });
-
     if (found) {
-      console.log('[PageProcessor] 已进入课程');
+      console.log('[PageProcessor] 通过传统扫描进入课程');
       await page.waitForTimeout(5000);
     } else {
       console.log('[PageProcessor] 未找到待学习课程');
     }
-
     return found;
   }
-}
-
-module.exports = PageProcessor;
