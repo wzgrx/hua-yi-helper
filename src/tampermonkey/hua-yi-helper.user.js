@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      3.7.2
+// @version      3.8.0
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -113,7 +113,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.7.2";
+var HY_VERSION = "3.8.0";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -1273,10 +1273,61 @@ var SmartEngine = {
     var maxChecks = 600;
     var videoStarted = false;
     
-    // 立即静音并尝试播放
+    // v3.8.0: 检测已完成的视频并跳过重新播放
+    // 网站 ban_history_time=on 导致视频重置到0, 但localStorage记录了
+    // 最大播放时间. 如果播放时间>=视频时长, 可以直接调用s2j_onPlayOver
+    // 启用考试按钮, 无需重新播放整个视频
     setTimeout(function() {
       try {
         var videos = document.querySelectorAll('video');
+        var videoDur = videos.length > 0 ? videos[0].duration : 0;
+        
+        // 检查localStorage是否有已完成的播放记录
+        // localStorage key格式: uid+cwrid+coaid, 值为播放到的秒数
+        var isAlreadyCompleted = false;
+        try {
+          var lsKeys = Object.keys(localStorage);
+          var uid = '';
+          // 从页面脚本变量获取uid (从URL或全局变量)
+          try { uid = typeof uid !== 'undefined' ? uid : ''; } catch(e) {}
+          // 查找包含当前cwid的localStorage key
+          var cwid = URL.getCWID() || '';
+          for (var ki = 0; ki < lsKeys.length; ki++) {
+            if (lsKeys[ki].indexOf(cwid) >= 0 && lsKeys[ki].length > 30) {
+              var playTime = parseInt(localStorage.getItem(lsKeys[ki]));
+              if (!isNaN(playTime) && videoDur > 0 && playTime >= videoDur - 5) {
+                isAlreadyCompleted = true;
+                log('[引擎] 检测到视频已完成(localStorage记录: ' + playTime + '秒/' + Math.round(videoDur) + '秒)');
+                break;
+              }
+            }
+          }
+        } catch(e) {}
+        
+        // 也检查视频元素本身是否已结束
+        if (!isAlreadyCompleted && videos.length > 0) {
+          var v0 = videos[0];
+          if (v0.duration > 0 && (v0.ended || v0.currentTime >= v0.duration - 3)) {
+            isAlreadyCompleted = true;
+            log('[引擎] 检测到视频已完成(ended/currentTime)');
+          }
+        }
+        
+        if (isAlreadyCompleted) {
+          // 调用页面的s2j_onPlayOver回调启用考试按钮
+          log('[引擎] 调用s2j_onPlayOver启用考试按钮');
+          try {
+            if (typeof window.s2j_onPlayOver === 'function') {
+              window.s2j_onPlayOver();
+            }
+          } catch(e) {
+            log('[引擎] s2j_onPlayOver调用失败: ' + e.message);
+          }
+          // 不播放视频, 等待jrks按钮启用
+          return;
+        }
+        
+        // 视频未完成 - 正常播放
         for (var v = 0; v < videos.length; v++) {
           try { videos[v].muted = true; videos[v].volume = 0; } catch(e) {}
         }
@@ -1286,12 +1337,10 @@ var SmartEngine = {
             p.then(function() { log('[引擎] 播放已开始'); }).catch(function(e) {});
           }
         }
-        // 倍速按钮
-        var rateBtn = document.querySelector('.pv-rate-btn');
-        if (rateBtn) {
-          for (var ri = 0; ri < 3; ri++) { try { rateBtn.click(); } catch(e) {} }
-          log('[引擎] 已尝试设置倍速');
-        }
+        // v3.8.0: 不点击倍速按钮 - 网站maxPlaybackRateLimit=1.0,
+        // 倍速控制已关闭(ifRatePlay=false), 点击倍速按钮无效且
+        // 可能触发反作弊检测(blockAbnormalPlugin)
+        log('[引擎] 视频播放中(1x倍速, 网站不支持加速)');
       } catch(e) {
         log('[引擎] 播放启动错误: ' + e.message);
       }
@@ -1320,10 +1369,25 @@ var SmartEngine = {
         var video = document.querySelector('video');
         if (video) {
           try { video.muted = true; video.volume = 0; } catch(e) {}
-          if (!videoStarted && !video.paused) { videoStarted = true; log('[引擎] 视频正在播放'); }
-          if (!videoStarted && video.paused && checkCount % 5 === 0) {
-            try { var p = video.play(); if(p&&p.then) p.catch(function(){}); } catch(e) {}
+          
+          // v3.8.0: 检测已完成视频 (ban_history_time=on 导致视频重置到0)
+          // 如果jrks按钮存在但disabled, 且视频在开头, 需要播放视频
+          // 但如果视频duration很短(<60秒)可能是已完成的标志
+          
+          // 检查视频是否已经结束
+          if (video.ended || (video.duration > 0 && video.currentTime >= video.duration - 3)) {
+            log('[引擎] 检测到视频已完成, 等待考试按钮启用');
+            // 不播放, 等待jrks启用
+            if (checkCount % 10 === 0) {
+              log('[引擎] 等待考试按钮启用... (视频已结束)');
+            }
+          } else {
+            if (!videoStarted && !video.paused) { videoStarted = true; log('[引擎] 视频正在播放'); }
+            if (!videoStarted && video.paused && checkCount % 5 === 0) {
+              try { var p = video.play(); if(p&&p.then) p.catch(function(){}); } catch(e) {}
+            }
           }
+
           var progress = video.duration > 0 ? (video.currentTime / video.duration) : 0;
           if (checkCount % 30 === 0) {
             var remaining = video.duration > 0 ? Math.round(video.duration - video.currentTime) : 0;
