@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      4.1.0
+// @version      4.2.0
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -113,7 +113,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "4.1.0";
+var HY_VERSION = "4.2.0";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -278,6 +278,7 @@ function log(msg) {
 // 智能导航 - 防止打开新标签页
 function safeNavigate(url) {
   if (!url || url.indexOf('javascript:') === 0) return false;
+  if (window.__HY_paused) { log('[导航] 已暂停, 取消导航'); return false; } // v4.2.0
   _navCooldown = Date.now() + CONFIG.delays.navCooldown;
   _isNavigating = true;
   log('[导航] -> ' + url.substring(0, 120));
@@ -515,7 +516,7 @@ var VueCourseScanner = {
         
         // 查找对应的状态按钮
         var status = '未学习';
-        var container = a.closest('tr') || a.closest('[class*="item"]') || a.parentElement;
+        var container = a.closest('tr') || a.closest('div.course') || a.closest('[class*="item"]') || a.closest('[class*="course"]') || a.parentElement;
         if (container) {
           var btns = container.querySelectorAll('button, input[type="button"]');
           for (var b = 0; b < btns.length; b++) {
@@ -920,6 +921,7 @@ var SmartEngine = {
       return;
     }
     this._running = true;
+    window.__HY_paused = false; // v4.2.0: Clear pause flag
     log('[引擎] === 开始执行 ===');
     this.updateUI('navigating', '正在启动...');
     
@@ -991,6 +993,10 @@ var SmartEngine = {
   // 暂停
   stop: function() {
     this._running = false;
+    window.__HY_paused = true; // v4.2.0: Global pause flag
+    // Clear any pending timers
+    if (window.__HY_videoCheck) { clearInterval(window.__HY_videoCheck); window.__HY_videoCheck = null; }
+    if (window.__HY_caseTimer) { clearInterval(window.__HY_caseTimer); window.__HY_caseTimer = null; }
     log('[引擎] === 已暂停 ===');
     this.updateUI('paused');
   },
@@ -1318,35 +1324,45 @@ var SmartEngine = {
     var videoStarted = false;
     var videoAlreadyCompleted = false; // v3.8.1: shared flag for both setTimeout and checkTimer
     
-    // v3.8.0: 检测已完成的视频并跳过重新播放
+    // v4.2.0: 检测已完成的视频并跳过重新播放
     // 网站 ban_history_time=on 导致视频重置到0, 但localStorage记录了
-    // 最大播放时间. 如果播放时间>=视频时长, 可以直接调用s2j_onPlayOver
-    // 启用考试按钮, 无需重新播放整个视频
+    // 最大播放时间. 如果播放时间>0, 直接调用s2j_onPlayOver启用考试按钮
     setTimeout(function() {
       try {
         var videos = document.querySelectorAll('video');
         var videoDur = videos.length > 0 ? videos[0].duration : 0;
         
-        // 检查localStorage是否有已完成的播放记录
-        // localStorage key格式: uid+cwrid+coaid, 值为播放到的秒数
+        // 检查localStorage是否有播放记录 (key格式: uid+cwrid+coaid, 值=播放到的秒数)
         var isAlreadyCompleted = false;
         try {
           var lsKeys = Object.keys(localStorage);
-          var uid = '';
-          // 从页面脚本变量获取uid (从URL或全局变量)
-          try { uid = typeof uid !== 'undefined' ? uid : ''; } catch(e) {}
-          // 查找包含当前cwid的localStorage key
           var cwid = URL.getCWID() || '';
+          log('[引擎] 检查视频完成: cwid=' + cwid.substring(0, 12));
           for (var ki = 0; ki < lsKeys.length; ki++) {
             if (lsKeys[ki].indexOf(cwid) >= 0 && lsKeys[ki].length > 30) {
               var playTime = parseInt(localStorage.getItem(lsKeys[ki]));
-              if (!isNaN(playTime) && videoDur > 0 && playTime >= videoDur - 5) {
+              // v4.2.0: 不依赖videoDur(启动时为0), 只要playTime>100秒就算已完成
+              // 因为正常视频至少几分钟, localStorage记录>100秒说明看过
+              if (!isNaN(playTime) && playTime > 100) {
                 isAlreadyCompleted = true;
                 videoAlreadyCompleted = true; // Set shared flag
-                log('[引擎] 检测到视频已完成(localStorage记录: ' + playTime + '秒/' + Math.round(videoDur) + '秒)');
+                log('[引擎] 检测到视频已完成(localStorage: ' + playTime + '秒)');
                 break;
               }
             }
+          }
+          // 如果没找到cwid匹配, 也检查页面脚本中的getMaxPlayTime
+          if (!isAlreadyCompleted) {
+            try {
+              if (typeof getMaxPlayTime === 'function') {
+                var maxTime = getMaxPlayTime();
+                if (maxTime > 100) {
+                  isAlreadyCompleted = true;
+                  videoAlreadyCompleted = true;
+                  log('[引擎] 检测到视频已完成(getMaxPlayTime: ' + maxTime + '秒)');
+                }
+              }
+            } catch(e2) {}
           }
         } catch(e) {}
         
@@ -1356,7 +1372,22 @@ var SmartEngine = {
           if (v0.duration > 0 && (v0.ended || v0.currentTime >= v0.duration - 3)) {
             isAlreadyCompleted = true;
             videoAlreadyCompleted = true; // Set shared flag
-            log('[引擎] 检测到视频已完成(ended/currentTime)');
+            log('[引擎] 检测到视频已完成(视频元素: ended=' + v0.ended + ')');
+          }
+        }
+        
+        // v4.2.0: 如果jrks按钮存在但disabled, 也说明视频需要看(还没看完)
+        // 如果jrks按钮不存在或display=none, 说明还在加载, 等待
+        var jrksCheck = document.getElementById('jrks');
+        if (jrksCheck && !isAlreadyCompleted) {
+          if (jrksCheck.hasAttribute('disabled')) {
+            // jrks disabled = video not finished yet, need to play
+            log('[引擎] jrks按钮disabled, 需要播放视频');
+          } else if (!jrksCheck.hasAttribute('disabled') && jrksCheck.style.display !== 'none') {
+            // jrks enabled = video already finished, go to exam
+            isAlreadyCompleted = true;
+            videoAlreadyCompleted = true;
+            log('[引擎] jrks按钮已启用, 视频已完成');
           }
         }
         
