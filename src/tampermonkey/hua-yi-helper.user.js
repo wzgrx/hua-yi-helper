@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      4.0.0
+// @version      4.0.2
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -113,7 +113,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "4.0.0";
+var HY_VERSION = "4.0.2";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -209,6 +209,8 @@ var URL = (function() {
     },
     // ASP.NET pages
     isCourseDetail: last === 'course.aspx' && href.indexOf('cid=') !== -1,
+    // Certificate application page
+    isCertificateApply: last === 'apply_certificate.aspx',
     isCourseList: (last === 'course.aspx' && href.indexOf('cid=') === -1) || last === 'cme.aspx',
     isCME: last === 'cme.aspx',
     isStudyList: last === 'study_info_list.aspx',
@@ -1543,6 +1545,72 @@ var SmartEngine = {
     });
   },
   
+  // 处理申请证书页 (apply_certificate.aspx)
+  handleCertificateApply: function() {
+    log('[引擎] 申请证书页加载...');
+    this.updateUI('navigating', '申请证书中...');
+    this._running = true;
+    var self = this;
+    
+    setTimeout(function() {
+      if (!self._running) return;
+      
+      // Look for the certificate application button/submit button
+      var submitBtn = null;
+      var btns = document.querySelectorAll('input[type="submit"], input[type="button"], button, a.btn');
+      for (var i = 0; i < btns.length; i++) {
+        var t = (btns[i].value || btns[i].textContent || '').trim();
+        if (t.indexOf('申请') >= 0 || t.indexOf('确认') >= 0 || t.indexOf('提交') >= 0 || t.indexOf('确定') >= 0) {
+          submitBtn = btns[i];
+          break;
+        }
+      }
+      
+      if (submitBtn) {
+        log('[引擎] 点击申请证书按钮: ' + ((submitBtn.value || submitBtn.textContent || '').trim()));
+        try { submitBtn.click(); } catch(e) {}
+        
+        // After clicking, wait for confirmation and navigate to next task
+        setTimeout(function() {
+          // Check for confirmation dialog
+          var confirmBtn = document.querySelector('input[value*="确认"], input[value*="确定"], button:contains("确认")');
+          if (confirmBtn) {
+            try { confirmBtn.click(); } catch(e) {}
+          }
+          
+          // Navigate to next task or study record
+          self.nextTask();
+          self._running = false;
+          setTimeout(function() {
+            var nextTask = self.getCurrentTask();
+            if (nextTask && nextTask.url) {
+              log('[引擎] 证书申请完成, 进入下一个任务: ' + nextTask.name);
+              self._running = true;
+              safeNavigate(nextTask.url);
+            } else {
+              log('[引擎] 所有任务完成, 返回学习记录页');
+              safeNavigate('/pages/study_info_list.aspx');
+            }
+          }, 3000);
+        }, 3000);
+      } else {
+        // No submit button found - may already be applied or page is different
+        log('[引擎] 未找到申请按钮, 可能已申请, 进入下一个任务');
+        self.nextTask();
+        self._running = false;
+        setTimeout(function() {
+          var nextTask = self.getCurrentTask();
+          if (nextTask && nextTask.url) {
+            self._running = true;
+            safeNavigate(nextTask.url);
+          } else {
+            safeNavigate('/pages/study_info_list.aspx');
+          }
+        }, 3000);
+      }
+    }, 2000);
+  },
+  
   // 更新UI状态
   updateUI: function(state, label) {
     try {
@@ -2352,6 +2420,11 @@ function mainRouter() {
       // HD exam result page
       log('[路由] HD考试结果页');
       SmartEngine.handleExamResult();
+    }
+    else if (URL.isCertificateApply) {
+      // 申请证书页 - 自动点击申请按钮
+      log('[路由] 申请证书页');
+      SmartEngine.handleCertificateApply();
     }
     else if (URL.isCourseDetail) {
       // 课程详情页
