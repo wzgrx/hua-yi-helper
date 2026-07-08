@@ -13,8 +13,8 @@
 // @grant        GM_addStyle
 // @grant        GM_info
 // @run-at       document-start
-// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/华医网小助手v3.0.0.user.js
-// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/华医网小助手v3.0.0.user.js
+// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/master/src/tampermonkey/hua-yi-helper.user.js
+// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/master/src/tampermonkey/hua-yi-helper.user.js
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
 // ==/UserScript==
 
