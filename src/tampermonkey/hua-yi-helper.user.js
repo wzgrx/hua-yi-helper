@@ -270,6 +270,31 @@ function safeClick(el) {
   }
 }
 
+// 修复btn67/window.open链接 - 截获新标签页打开
+function fixWindowOpenLinks() {
+  try {
+    // 重写所有onclick包含window.open的链接/按钮
+    var allEls = document.querySelectorAll('[onclick*=\"window.open\"]');
+    for (var fi = 0; fi < allEls.length; fi++) {
+      var el = allEls[fi];
+      var oc = el.getAttribute('onclick') || '';
+      var m = oc.match(/window\.open\s*\(\s*['"]([^'"]+)['"]/);
+      if (m && m[1]) {
+        var url = m[1];
+        if (url.indexOf('http') < 0) {
+          if (url.indexOf('/') === 0) url = window.location.origin + url;
+          else url = window.location.origin + '/pages/' + url.replace('../pages/', '');
+        }
+        // 重写onclick为safeNavigate
+        el.setAttribute('onclick', 'location.href=\"' + url + '\"');
+        log('[安全] 重写window.open: ' + url.substring(0, 80));
+      }
+    }
+  } catch(e) {
+    log('[安全] fixWindowOpenLinks错误: ' + e.message);
+  }
+}
+
 // 页面限制清理
 function cleanupRestrictions() {
   try {
@@ -459,48 +484,72 @@ var VueCourseScanner = {
   // 扫描学分信息 - 从cme.aspx表格
   scanCreditsFromASP: function() {
     try {
-      var tables = document.querySelectorAll('table');
-      var credits = { total: 0, public: 0, other: 0, projects: [] };
+      // 解析学习记录表(study_info_list.aspx): 8列表(项目名称|项目编号|学分类型|学习状态|学分申请时间|机构|学习进度|操作)
+      var table = document.querySelector('table thead');
+      if (!table) return null;
       
-      for (var t = 0; t < tables.length; t++) {
-        var table = tables[t];
-        var rows = table.querySelectorAll('tr');
-        if (rows.length < 2) continue;
+      var tbody = document.querySelector('table tbody');
+      if (!tbody) return null;
+      
+      var result = { total: 0, public: 0, other: 0, done: 0, inProgress: 0, courses: [] };
+      var rows = tbody.querySelectorAll('tr');
+      
+      for (var ri = 0; ri < rows.length; ri++) {
+        var cells = rows[ri].querySelectorAll('td');
+        if (cells.length < 4) continue;
         
-        for (var r = 1; r < rows.length; r++) {
-          var cells = rows[r].querySelectorAll('td, th');
-          if (cells.length < 3) continue;
-          
-          var rowText = rows[r].textContent || '';
-          var isPublic = rowText.indexOf('公需') >= 0;
-          var credit = 0;
-          var cm = rowText.match(/([\d.]+)\s*分/);
-          if (cm) credit = parseFloat(cm[1]);
-          var completed = rowText.indexOf('已完成') >= 0 || rowText.indexOf('已申请') >= 0;
-          
-          if (credit > 0) {
-            if (completed) {
-              credits.total += credit;
-              if (isPublic) credits.public += credit;
-              else credits.other += credit;
-            }
-            credits.projects.push({
-              text: rowText.substring(0, 50),
-              credit: credit,
-              isPublic: isPublic,
-              completed: completed
-            });
-          }
+        // 第1列: 项目名称(含链接)
+        var nameEl = cells[0].querySelector('a');
+        var name = nameEl ? nameEl.textContent.trim() : '';
+        var link = nameEl ? nameEl.href : '';
+        
+        // 第3列: 学分类型(如"国家级 2.0学分"或"自治区级公需课5分")
+        var creditText = cells.length >= 3 ? (cells[2].textContent || '').trim() : '';
+        var cm = creditText.match(/([\d.]+)\s*学分/) || creditText.match(/([\d.]+)分/);
+        var credit = cm ? parseFloat(cm[1]) : 0;
+        if (credit === 0) credit = 1;
+        
+        // 判断是否公需课
+        var isPublic = creditText.indexOf('公需') >= 0 || name.indexOf('公需') >= 0;
+        
+        // 第4列: 学习状态(学习完毕/学习中/已申请/未学习/待考试)
+        var status = cells.length >= 4 ? (cells[3].textContent || '').trim() : '未学习';
+        
+        // 第7列: 学习进度(如"7/7", "0/12")
+        var progress = '';
+        if (cells.length >= 7) {
+          progress = (cells[6].textContent || '').trim();
         }
+        
+        var completed = status === '学习完毕' || status === '已申请';
+        var isInProgress = status === '学习中';
+        
+        if (completed) {
+          result.total += credit;
+          if (isPublic) result.public += credit;
+          else result.other += credit;
+          result.done += credit;
+        } else if (isInProgress) {
+          result.inProgress += credit;
+        }
+        
+        result.courses.push({
+          name: name,
+          credit: credit,
+          status: status,
+          isPublic: isPublic,
+          completed: completed,
+          link: link,
+          progress: progress
+        });
       }
       
-      return credits;
+      return result;
     } catch(e) {
       log('[学分扫描] 出错: ' + e.message);
       return null;
     }
-  }
-};
+  },};
 
 // ═══════════════════════════════════════════════════════════════
 // 5. 智能学分规划器 (Smart Credit Planner)
@@ -828,7 +877,7 @@ var SmartEngine = {
       
       log('[引擎] 进入课件: ' + found.name);
       // 课件链接会重定向到问卷, 再重定向到视频
-      found.href = found.href.replace('course_ware.aspx', 'course_ware_polyv.aspx');
+      // 原链接让服务器处理重定向流程(问卷sojumpparm含视频地址)
       safeNavigate(found.href);
     }, 2000);
   },
@@ -837,7 +886,11 @@ var SmartEngine = {
   checkExamAfterCourseware: function() {
     var self = this;
     // 查找考试相关元素
-    var examBtns = document.querySelectorAll('input[type="button"][value*="考试"], input[type="button"][value*="进入"], a[href*="exam"]');
+    var allBtns = document.querySelectorAll('button, input[type="button"]');
+    var examBtns = Array.from(allBtns).filter(function(b) {
+      var t = (b.textContent or b.value or '').strip();
+      return t.find('考试') >= 0 or t.find('进入') >= 0;
+    });
     if (examBtns.length > 0) {
       log('[引擎] 检测到考试按钮, 进入考试');
       var btn = examBtns[0];
@@ -879,7 +932,22 @@ var SmartEngine = {
       if (!self._running) return;
       
       // 问卷星问卷: 查找提交/完成按钮
-      var submitBtn = document.querySelector('#divSubmit .btn_submit, input[type="submit"], button[type="submit"], .submitbutton, a.submit, .wjx_submit');
+      var m = location.href.match(/sojumpparm=[^|]*\|[^|]*\|[^|]*\|([^&]+)/);
+      if (m) {
+        var videoUrl = decodeURIComponent(m[1]);
+        log('[引擎] 从sojumpparm提取视频地址, 跳过问卷');
+        safeNavigate(videoUrl);
+        return;
+      }
+
+      var cwid = URL.getCWID();
+      if (cwid) {
+        log('[引擎] 直接访问polyv视频页');
+        safeNavigate('/course_ware/course_ware_polyv.aspx?cwid=' + cwid);
+        return;
+      }
+
+      var submitBtn = document.querySelector('#divSubmit .btn_submit, input[type="submit"], button[type="submit"], .submitbutton, a.submit');
       if (submitBtn) {
         log('[引擎] 提交问卷...');
         submitBtn.click();
@@ -1719,6 +1787,7 @@ function mainRouter() {
   
   // 清理页面限制
   cleanupRestrictions();
+  fixWindowOpenLinks();
   
   // 处理页面
   try {
