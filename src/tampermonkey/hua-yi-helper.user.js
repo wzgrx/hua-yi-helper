@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      3.7.0
+// @version      3.7.2
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -113,7 +113,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.7.0";
+var HY_VERSION = "3.7.2";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -1391,15 +1391,35 @@ var SmartEngine = {
     window.__HY_videoCheck = checkTimer;
   },
   // 处理考试结果页
+  // 处理考试页 (exam.aspx)
+  handleExam: function() {
+    log('[引擎] 考试页加载, 开始答题...');
+    this.updateUI('exam');
+    this._running = true;
+    cleanupRestrictions();
+    // doExam() handles the full answer flow: find questions → answer → submit
+    // After submit, the page navigates to exam_result.aspx → handleExamResult
+    doExam();
+  },
+  // 处理考试结果页
   handleExamResult: function() {
     log('[引擎] 考试结果页');
     var self = this;
     doResult(function() {
       self.nextTask();
       self._running = false;
-      // 返回课程列表继续
+      // Navigate to next task or study record
       setTimeout(function() {
-        window.location.href = '/cme/index';
+        var nextTask = self.getCurrentTask();
+        if (nextTask && nextTask.url) {
+          log('[引擎] 考试完成, 进入下一个任务: ' + nextTask.name);
+          self._running = true;
+          safeNavigate(nextTask.url);
+        } else {
+          // No more tasks - go to study record to check updated credits
+          log('[引擎] 所有任务完成, 返回学习记录页');
+          safeNavigate('/pages/study_info_list.aspx');
+        }
       }, 3000);
     });
   },
