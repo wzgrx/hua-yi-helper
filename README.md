@@ -1,14 +1,24 @@
-# 华医网小助手 v3.1
+# 华医网小助手 v3.3
 
 > 全自动智能刷课 | 真实适配2026华医网Vue SPA新版 | 学分规划 | 无人值守
 
 [![License](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.1.0-brightgreen.svg)](https://greasyfork.org/scripts/483418)
+[![Version](https://img.shields.io/badge/version-3.3.0-brightgreen.svg)](https://github.com/wzgrx/hua-yi-helper)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey%20%7C%20Win11-orange.svg)](https://github.com/wzgrx/hua-yi-helper)
 
 ---
 
-## 核心创新 (v3.1)
+## v3.3.0 关键修复 (2026-07-08)
+
+### 视频-考试流程致命bug修复
+
+1. **jrks考试按钮disabled属性未检测** - 网站给按钮加disabled属性, 旧脚本只检查style.display导致误判
+2. **视频完成后不等待按钮启用** - 旧代码立即clearInterval, 按钮还未启用就返回课程列表
+3. **_running=false杀死定时器** - 旧代码第二次迭代就杀死定时器, 视频监控只跑1秒
+4. **href=#导航错误** - a.href返回完整URL带#, 改用getAttribute+click()触发jQuery处理器
+5. **版本号从未递增** - 3.2.1-3.2.6六次提交@version始终3.2.0, Tampermonkey永不更新
+
+## 核心创新 (v3.3)
 
 ### 真实网站DOM适配
 基于 **2026年华医网** 实际页面DOM深度分析重新设计:
