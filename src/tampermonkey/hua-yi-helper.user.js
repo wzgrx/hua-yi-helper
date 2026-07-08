@@ -7,6 +7,7 @@
 // @license      AGPL-3.0
 // @match        *://*.91huayi.com/*
 // @match        *://dcwj.91huayi.com/*
+// @match        *://hdbl.91huayi.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -216,11 +217,15 @@ var URL = (function() {
     isPolyv: last.indexOf('course_ware_polyv') !== -1,
     isCC: last.indexOf('course_ware_cc') !== -1,
     isCourseware: last === 'course_ware.aspx',
+    // Interactive case page (hdbl.91huayi.com)
+    isInteractiveCase: href.indexOf('hdbl.91huayi.com') !== -1,
+    // HD exam result page
+    isHDExamResult: last === 'exam_result_hd.aspx' || href.indexOf('exam_result_hd') !== -1,
     // Survey page
     isSurvey: href.indexOf('dcwj.91huayi.com') !== -1,
     // Exam pages
     isExam: last === 'exam.aspx' || last === 'exam_code.aspx',
-    isExamResult: last === 'exam_result.aspx',
+    isExamResult: last === 'exam_result.aspx' || last === 'exam_result_hd.aspx',
     // Other
     isFace: last === 'face.aspx',
     isError: href.indexOf('error.html') !== -1,
@@ -962,6 +967,8 @@ var SmartEngine = {
     // 根据页面类型执行对应操作
     if (URL.isSurvey) {
       this.handleSurvey();
+    } else if (URL.isInteractiveCase) {
+      this.handleInteractiveCase();
     } else if (URL.isVideo) {
       this.handleVideo();
     } else if (URL.isExam) {
@@ -1135,6 +1142,83 @@ var SmartEngine = {
         }
       }
     }, 3000);
+  },
+  
+  // 处理互动病例页 (hdbl.91huayi.com)
+  handleInteractiveCase: function() {
+    log('[引擎] 互动病例页加载...');
+    this.updateUI('video');
+    this._running = true;
+    cleanupRestrictions();
+    
+    var self = this;
+    var caseCheckCount = 0;
+    var caseMaxChecks = 300; // 5 minutes
+    
+    var caseTimer = setInterval(function() {
+      if (!self._running) { clearInterval(caseTimer); return; }
+      caseCheckCount++;
+      
+      try {
+        // Look for '查看病例' button or any clickable element to start
+        var startBtn = null;
+        var allEls = document.querySelectorAll('div, span, a, button, [class*="btn"]');
+        for (var i = 0; i < allEls.length; i++) {
+          var txt = (allEls[i].textContent || '').trim();
+          if (txt === '查看病例' || txt === '开始学习' || txt === '进入病例') {
+            startBtn = allEls[i];
+            break;
+          }
+        }
+        
+        if (startBtn && caseCheckCount <= 3) {
+          log('[引擎] 点击查看病例');
+          try { startBtn.click(); } catch(e) {}
+        }
+        
+        // Look for '下一步' / '继续' / '完成' buttons to progress through the case
+        var progressBtns = document.querySelectorAll('div, span, a, button, [class*="btn"]');
+        for (var j = 0; j < progressBtns.length; j++) {
+          var pt = (progressBtns[j].textContent || '').trim();
+          if (pt === '下一步' || pt === '继续' || pt === '完成' || pt === '下一页' || pt === '确认') {
+            try { progressBtns[j].click(); } catch(e) {}
+            log('[引擎] 互动病例: 点击 ' + pt);
+            break;
+          }
+        }
+        
+        // Check if completed (redirect back or completion text)
+        var pageText = document.body ? document.body.innerText : '';
+        if (pageText.indexOf('已完成') >= 0 || pageText.indexOf('学习完毕') >= 0) {
+          clearInterval(caseTimer);
+          log('[引擎] 互动病例完成');
+          self._running = false;
+          // Navigate back to course detail
+          var backUrl = new URLSearchParams(window.location.search).get('backUrl');
+          if (backUrl) {
+            safeNavigate(backUrl);
+          } else {
+            safeNavigate('/pages/study_info_list.aspx');
+          }
+          return;
+        }
+        
+        if (caseCheckCount % 30 === 0) {
+          log('[引擎] 互动病例进行中... (' + caseCheckCount + '秒)');
+        }
+        
+        if (caseCheckCount > caseMaxChecks) {
+          clearInterval(caseTimer);
+          log('[引擎] 互动病例超时, 返回课程列表');
+          self._running = false;
+          safeNavigate('/pages/study_info_list.aspx');
+        }
+      } catch(e) {
+        log('[引擎] 互动病例错误: ' + e.message);
+      }
+    }, 1000);
+    
+    window.__HY_caseTimer = caseTimer;
   },
   
   // 处理视频页 (course_ware_polyv.aspx)
@@ -2078,6 +2162,16 @@ function mainRouter() {
     else if (URL.isExamResult) {
       // 考试结果页
       log('[路由] 考试结果页');
+      SmartEngine.handleExamResult();
+    }
+    else if (URL.isInteractiveCase) {
+      // Interactive case page (hdbl.91huayi.com) - Vue SPA
+      log('[路由] 互动病例页');
+      SmartEngine.handleInteractiveCase();
+    }
+    else if (URL.isHDExamResult) {
+      // HD exam result page
+      log('[路由] HD考试结果页');
       SmartEngine.handleExamResult();
     }
     else if (URL.isCourseDetail) {
