@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      3.1.0
-// @description  全自动智能刷课 - 真实适配2026华医网Vue SPA新版|智能学分规划(公需5+其他20=25)|无人值守|自动静音|视频助手|考试助手|Win11/油猴
+// @version      3.2.0
+// @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
 // @match        *://*.91huayi.com/*
@@ -82,9 +82,9 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.1.0";
-var HY_UPDATE_DATE = "2026.7.8";
-var HY_UPDATE_LOG = "v3.1.0 完全基于真实网站DOM重构: Vue SPA混合架构|智能Tab管理|答题模块重构";
+var HY_VERSION = "3.2.0";
+var HY_UPDATE_DATE = "2026.7.9";
+var HY_UPDATE_LOG = "v3.2.0 全面修复: 学习记录表优先(study_info_list/cme.aspx)|Vue SPA重试+备用选择器|cme.aspx 4列表格自动识别|btn67 window.open拦截|HY_VERSION作用域修复";
 var HY_HISTORY = [
   "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
   "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",

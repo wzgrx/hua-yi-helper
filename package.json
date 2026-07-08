@@ -1,6 +1,6 @@
 {
   "name": "hua-yi-helper",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "华医网小助手 v3.0 - 全自动智能刷课，智能学分规划，油猴/WSL/Hermes三端适配",
   "main": "src/hermes/index.js",
   "scripts": {

@@ -20,7 +20,7 @@ function assert(condition, message) {
 }
 
 console.log('========================================');
-console.log('  华医网小助手 v3.1.0 - 测试套件');
+console.log('  华医网小助手 v3.2.0 - 测试套件');
 console.log('========================================\n');
 
 // 1. 主文件存在性
@@ -35,7 +35,7 @@ console.log('\n\u{1F4DC} 油猴脚本元数据:');
 assert(content.includes('==UserScript=='), 'UserScript头');
 assert(content.includes('@match        *://*.91huayi.com/*'), '@match 91huayi');
 assert(content.includes('@match        *://dcwj.91huayi.com/*'), '@match dcwj');
-assert(content.includes('@version      3.1.0'), '版本号 3.1.0');
+assert(content.includes('@version      3.2.0'), '版本号 3.2.0');
 assert(content.includes('@run-at       document-idle'), 'document-idle');
 assert(content.includes('GM_getValue'), 'GM授权');
 
