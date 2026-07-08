@@ -416,7 +416,7 @@ var VueCourseScanner = {
       var cards = container.querySelectorAll('li.jet_lis');
       if (cards.length === 0) {
         // 回退: 可能在其他结构中
-        cards = proCent.querySelectorAll('[class*="card"], [class*="item"], li');
+        cards = container.querySelectorAll('[class*="card"], [class*="item"], li');
       }
       
       log('[VUE扫描] 找到 ' + cards.length + ' 个课程卡片');
