@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      3.5.0
+// @version      3.6.0
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -112,7 +112,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.5.0";
+var HY_VERSION = "3.6.0";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -737,7 +737,7 @@ var CreditPlanner = {
       
       tasks.push({
         name: c.name,
-        url: c.link,
+        url: c.link || ('/pages/course.aspx?cid=' + c.name),
         credit: c.credit,
         status: c.status,
         isPublic: c.isPublic,
@@ -857,16 +857,17 @@ var SmartEngine = {
       return;
     }
     
-    // No existing plan - need to go to course list to scan and generate one
-    // Navigate to the Vue SPA course list page first
-    if (!URL.isVueSPA() && !URL.isCME && !URL.isStudyList) {
-      log('[引擎] 当前页面无法扫描课程, 跳转到课程列表页');
+    // No existing plan - need to check study records FIRST
+    // Navigate to study_info_list.aspx to get real credit status
+    // (Vue SPA cards don't show study progress - all show as '未学习')
+    if (!URL.isStudyList) {
+      log('[引擎] 先查看学习记录, 获取真实学分状态...');
       Store.s('__HY_startRequested', true);
-      safeNavigate('/cme/index');
+      safeNavigate('/pages/study_info_list.aspx');
       return;
     }
     
-    // We are on a course list page - try to generate plan
+    // We are on the study record page - parse real credit status
     var self = this;
     setTimeout(function() {
       var analysis = CreditPlanner.analyze();
@@ -874,21 +875,34 @@ var SmartEngine = {
         log('[学分] 已获: ' + analysis.totalEarned + '/' + analysis.targetTotal +
             ' (公需' + analysis.publicEarned + '/' + analysis.publicTarget +
             ' 其他' + analysis.otherEarned + '/' + analysis.otherTarget + ')');
+        
+        // List courses that need action
+        var needAction = analysis.courses.filter(function(c) { return !c.completed; });
+        for (var i = 0; i < needAction.length; i++) {
+          log('[学分] 需处理: ' + needAction[i].name.substring(0, 25) + ' (' + needAction[i].status + ', ' + needAction[i].credit + '分)');
+        }
+        
         if (analysis.met) {
           log('[引擎] 学分已达标, 无需继续');
           self._running = false;
           self.updateUI('done');
           return;
         }
+        
+        // Generate plan from courses that need action
         var plan = CreditPlanner.generatePlan(analysis);
         if (plan && plan.tasks.length > 0) {
           self.showTasks();
           var newTask = self.getCurrentTask();
-          if (newTask) self.navigateToTask(newTask);
+          if (newTask) {
+            log('[引擎] 开始执行第一个任务: ' + newTask.name);
+            self.navigateToTask(newTask);
+          }
         } else {
-          log('[引擎] 无法生成计划 (可能课程已全部完成或学分已达标)');
-          self._running = false;
-          self.updateUI('done');
+          // No courses need action from study record - go to CME index to find new courses
+          log('[引擎] 学习记录中的课程无需处理, 跳转到课程列表寻找新课程...');
+          Store.s('__HY_needMoreCourses', true);
+          safeNavigate('/cme/index');
         }
       } else {
         log('[引擎] 无法分析学分, 重试中...');
@@ -2112,7 +2126,48 @@ function mainRouter() {
           log('[学分] 缺口: ' + analysis.totalRemaining + '分 (公需' + analysis.publicRemaining + ', 其他' + analysis.otherRemaining + ')');
           CreditPlanner.showQuickStatus(analysis);
           if (!SmartEngine._running) {
-            if (Store.g('__HY_startRequested', false) || true) {
+            if (Store.g('__HY_needMoreCourses', false)) {
+              Store.d('__HY_needMoreCourses');
+              log('[引擎] 从学习记录页转来, 寻找新课程补充计划...');
+              // Merge Vue SPA courses with existing analysis
+              var existingPlan = Store.g(HY_PLAN_KEY, null);
+              var vueCourses = analysis.courses;
+              var newTasks = [];
+              var needMore = analysis.totalRemaining;
+              for (var vi = 0; vi < vueCourses.length && newTasks.length < 10; vi++) {
+                var vc = vueCourses[vi];
+                // Skip if already in plan
+                var inPlan = false;
+                if (existingPlan && existingPlan.tasks) {
+                  for (var pi = 0; pi < existingPlan.tasks.length; pi++) {
+                    if (existingPlan.tasks[pi].name === vc.name) { inPlan = true; break; }
+                  }
+                }
+                if (!inPlan) {
+                  newTasks.push({name: vc.name, url: vc.link, credit: vc.credit, status: vc.status, isPublic: vc.isPublic, completed: false});
+                  needMore -= vc.credit;
+                  if (needMore <= 0) break;
+                }
+              }
+              if (newTasks.length > 0) {
+                if (existingPlan && existingPlan.tasks) {
+                  existingPlan.tasks = existingPlan.tasks.concat(newTasks);
+                  Store.s(HY_PLAN_KEY, existingPlan);
+                } else {
+                  Store.s(HY_PLAN_KEY, {tasks: newTasks, total: newTasks.reduce(function(s,t){return s+t.credit;},0), need: analysis.totalRemaining, createdAt: Date.now()});
+                }
+                Store.s(HY_PLAN_IDX, 0);
+                SmartEngine._running = true;
+                log('[引擎] 补充' + newTasks.length + '门新课程到计划');
+                SmartEngine.showTasks();
+                var firstTask = SmartEngine.getCurrentTask();
+                if (firstTask) SmartEngine.navigateToTask(firstTask);
+              } else {
+                log('[引擎] 无可用新课程');
+                SmartEngine._running = false;
+                SmartEngine.updateUI('done');
+              }
+            } else {
               log('[引擎] 发现课程, 自动开始执行计划');
               SmartEngine.start();
             }
@@ -2130,11 +2185,17 @@ function mainRouter() {
     }
     else if (URL.isStudyList) {
       log('[路由] 学习记录页(ASP.NET)');
-      if (!SmartEngine._running) {
-        var credits = VueCourseScanner.scanCreditsFromASP();
-        if (credits) {
-          log('[学分] ASP.NET表格: 已获' + credits.total + '分');
-        }
+      var studyCredits = VueCourseScanner.scanCreditsFromASP();
+      if (studyCredits) {
+        log('[学分] ASP.NET表格: 已获' + studyCredits.total + '分, 待处理' + studyCredits.courses.filter(function(c){return !c.completed;}).length + '门课');
+      }
+      // If start was requested, continue with plan generation
+      if (Store.g('__HY_startRequested', false) && !SmartEngine._running) {
+        Store.d('__HY_startRequested');
+        log('[引擎] 从学习记录页开始执行...');
+        SmartEngine.start();
+      } else if (SmartEngine._running) {
+        SmartEngine.handleCurrentPage();
       }
     }
     else if (URL.isError) {
