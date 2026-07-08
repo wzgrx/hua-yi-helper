@@ -1060,9 +1060,16 @@ var SmartEngine = {
       }
       
       if (!found) {
-        log('[引擎] 课程详情: 所有课件已完成');
-        // 检查是否有考试
-        self.checkExamAfterCourseware();
+        log('[引擎] 课程详情: 所有课件已完成, 进入第一个课件查找考试入口');
+        // For '学习完毕' courses: all coursewares done but exam not taken
+        // Enter the first courseware to reach the video page where #jrks exam button is enabled
+        if (coursewares.length > 0 && coursewares[0].href) {
+          log('[引擎] 进入课件查找考试: ' + coursewares[0].name);
+          Store.s('__HY_lookingForExam', true);
+          safeNavigate(coursewares[0].href);
+        } else {
+          self.checkExamAfterCourseware();
+        }
         return;
       }
       
@@ -1077,11 +1084,18 @@ var SmartEngine = {
   checkExamAfterCourseware: function() {
     var self = this;
     // 查找考试相关元素
-    var allBtns = document.querySelectorAll('button, input[type="button"]');
+    var allBtns = document.querySelectorAll('button, input[type="button"], input[type="image"], a, [onclick]');
     var examBtns = Array.from(allBtns).filter(function(b) {
-      var t = (b.textContent || b.value || '').trim();
-      return t.indexOf('考试') >= 0 || t.indexOf('进入') >= 0;
+      var t = (b.textContent || b.value || b.alt || '').trim();
+      var oc = b.getAttribute('onclick') || '';
+      return t.indexOf('考试') >= 0 || t.indexOf('进入') >= 0 || t.indexOf('申请') >= 0 ||
+             oc.indexOf('exam') >= 0 || oc.indexOf('考试') >= 0 || oc.indexOf('apply') >= 0;
     });
+    // Also check for links to exam.aspx
+    if (examBtns.length === 0) {
+      var examLinks = document.querySelectorAll('a[href*="exam.aspx"]');
+      if (examLinks.length > 0) examBtns = Array.from(examLinks);
+    }
     if (examBtns.length > 0) {
       log('[引擎] 检测到考试按钮, 进入考试');
       var btn = examBtns[0];
