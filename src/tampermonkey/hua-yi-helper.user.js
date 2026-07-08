@@ -1085,7 +1085,7 @@ var SmartEngine = {
         if (jrksBtn && jrksBtn.style.display !== 'none') {
           log('[引擎] 检测到进入考试, 进入考试');
           clearInterval(checkTimer);
-          if (jrksBtn.href && jrksBtn.href !== location.href) {
+          if (jrksBtn.href && jrksBtn.href !== location.href && !jrksBtn.href.startsWith('javascript')) {
             window.location.href = jrksBtn.href;
           } else {
             try { jrksBtn.click(); } catch(e) {}
