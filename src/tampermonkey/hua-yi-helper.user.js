@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      3.0.1
+// @version      3.0.2
 // @description  全自动智能刷课 - 智能学分规划(公需5+其他20=25)、无人值守、自动静音、视频助手、考试助手、不疲劳、Win11/油猴/WSL三端适配
 // @author       wzgrx | 三创作者：Mriio | 二创作者：境界程序员 | 原创作者：Dr.S
 // @license      AGPL-3.0
