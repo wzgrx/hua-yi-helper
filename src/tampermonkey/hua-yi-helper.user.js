@@ -37,27 +37,7 @@
 
 "use strict";
 
-// ═══════════════════════════════════════════════════════════════
-// 版本信息
-// ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "3.1.0";
-var HY_UPDATE_DATE = "2026.7.8";
-var HY_UPDATE_LOG = "v3.1.0 完全基于真实网站DOM重构: Vue SPA混合架构|智能Tab管理|答题模块重构";
-var HY_HISTORY = [
-  "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
-  "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",
-  "  · Vue SPA课程解析: 从.jet_ul > li.jet_lis卡片提取课程名/学分/状态",
-  "  · ASP.NET详情页: a.f14blue.cw-title-link课件链接解析",
-  "  · Tab管理: 截获target=_blank,统一用location.href导航",
-  "  · 问卷页自动处理: 检测dcwj.91huayi.com域,自动完成或跳过",
-  "  · 新学分规划: 从Vue SPA课程卡片直接解析学分数据",
-  "  · 答题模块重构: 支持ASP.NET+混合格式,指纹匹配+智能评分",
-  "  · 控制面板重设计: 弹窗级UI,任务列表,实时日志,状态指示",
-  "  · 智能分页: 自动翻页扫描全部课程(非仅第1页)",
-  "  · 页面路由修正: study_info_list→ASP.NET, fme→Vue SPA",
-  "  · 冗余代码清理: 删除所有lis-inside-content/btn67旧逻辑",
-  "v3.0.2 (2026.7.8) - 考试模块升级: 指纹识别|文本匹配|防随机化"
-];
+
 
 // ═══════════════════════════════════════════════════════════════
 // 零号拦截器 (页面加载前执行)
@@ -99,6 +79,28 @@ var HY_HISTORY = [
 // 主函数入口 - DOMContentLoaded后执行
 // ═══════════════════════════════════════════════════════════════
 function __HY_main() {
+// ═══════════════════════════════════════════════════════════════
+// 版本信息
+// ═══════════════════════════════════════════════════════════════
+var HY_VERSION = "3.1.0";
+var HY_UPDATE_DATE = "2026.7.8";
+var HY_UPDATE_LOG = "v3.1.0 完全基于真实网站DOM重构: Vue SPA混合架构|智能Tab管理|答题模块重构";
+var HY_HISTORY = [
+  "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
+  "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",
+  "  · Vue SPA课程解析: 从.jet_ul > li.jet_lis卡片提取课程名/学分/状态",
+  "  · ASP.NET详情页: a.f14blue.cw-title-link课件链接解析",
+  "  · Tab管理: 截获target=_blank,统一用location.href导航",
+  "  · 问卷页自动处理: 检测dcwj.91huayi.com域,自动完成或跳过",
+  "  · 新学分规划: 从Vue SPA课程卡片直接解析学分数据",
+  "  · 答题模块重构: 支持ASP.NET+混合格式,指纹匹配+智能评分",
+  "  · 控制面板重设计: 弹窗级UI,任务列表,实时日志,状态指示",
+  "  · 智能分页: 自动翻页扫描全部课程(非仅第1页)",
+  "  · 页面路由修正: study_info_list→ASP.NET, fme→Vue SPA",
+  "  · 冗余代码清理: 删除所有lis-inside-content/btn67旧逻辑",
+  "v3.0.2 (2026.7.8) - 考试模块升级: 指纹识别|文本匹配|防随机化"
+];
+
 
 // ═══════════════════════════════════════════════════════════════
 // 1. 配置与存储
@@ -888,8 +890,8 @@ var SmartEngine = {
     // 查找考试相关元素
     var allBtns = document.querySelectorAll('button, input[type="button"]');
     var examBtns = Array.from(allBtns).filter(function(b) {
-      var t = (b.textContent or b.value or '').strip();
-      return t.find('考试') >= 0 or t.find('进入') >= 0;
+      var t = (b.textContent || b.value || '').trim();
+      return t.indexOf('考试') >= 0 || t.indexOf('进入') >= 0;
     });
     if (examBtns.length > 0) {
       log('[引擎] 检测到考试按钮, 进入考试');
