@@ -1080,6 +1080,15 @@ var SmartEngine = {
       if (!self._running) { clearInterval(checkTimer); return; }
       checkCount++;
       try {
+        // 立即检查是否可进入考试(视频可能已完成)
+        var jrksBtn = document.getElementById('jrks');
+        if (jrksBtn && jrksBtn.offsetParent !== null && !jrksBtn.disabled) {
+          log('[引擎] 检测到进入考试按钮, 进入考试');
+          clearInterval(checkTimer);
+          jrksBtn.click();
+          return;
+        }
+
         killPopups();
         
         var video = document.querySelector('video');
@@ -1874,16 +1883,23 @@ function mainRouter() {
       if (SmartEngine._running) {
         SmartEngine.handleCurrentPage();
       } else {
-        // 被动模式: 扫描课件
+        // 自动进入课件模式: 扫描课件并进入第一个未完成的
         setTimeout(function() {
           var cws = VueCourseScanner.scanFromCourseDetail();
           if (cws.length > 0) {
             // 找第一个未完成的课件
+            var found = null;
             for (var i = 0; i < cws.length; i++) {
               if (!cws[i].completed) {
-                log('[路由] 课件: ' + cws[i].name + ' (' + cws[i].status + ')');
+                found = cws[i];
                 break;
               }
+            }
+            if (found) {
+              log('[路由] 自动进入课件: ' + found.name + ' (' + found.status + ')');
+              safeNavigate(found.href);
+            } else {
+              log('[路由] 所有课件已完成');
             }
           }
         }, 2000);
