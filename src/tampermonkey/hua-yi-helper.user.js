@@ -512,9 +512,12 @@ var VueCourseScanner = {
   // 扫描学分信息 - 从cme.aspx表格
   scanCreditsFromASP: function() {
     try {
-      // 解析学习记录表(study_info_list.aspx): 8列表(项目名称|项目编号|学分类型|学习状态|学分申请时间|机构|学习进度|操作)
-      var table = document.querySelector('table thead');
-      if (!table) return null;
+      // 检测表格类型: study_info_list.aspx=8列(含状态/进度), cme.aspx=4列(操作按钮)
+      var thead = document.querySelector('table thead');
+      if (!thead) return null;
+
+      var thCount = thead.querySelectorAll('th').length;
+      var isStudyInfo = thCount >= 6;
       
       var tbody = document.querySelector('table tbody');
       if (!tbody) return null;
@@ -540,8 +543,20 @@ var VueCourseScanner = {
         // 判断是否公需课
         var isPublic = creditText.indexOf('公需') >= 0 || name.indexOf('公需') >= 0;
         
-        // 第4列: 学习状态(学习完毕/学习中/已申请/未学习/待考试)
-        var status = cells.length >= 4 ? (cells[3].textContent || '').trim() : '未学习';
+        var status = '未学习';
+        if (isStudyInfo) {
+          status = cells.length >= 4 ? (cells[3].textContent || '').trim() : '未学习';
+        } else {
+          // cme.aspx: 第4列=操作按钮, 从按钮文本推断状态
+          if (cells.length >= 4) {
+            var btn = cells[3].querySelector('input[type="button"], button');
+            if (btn) {
+              var bt = (btn.value || btn.textContent || '').trim();
+              if (bt.indexOf('继续') >= 0) { status = '学习中'; }
+              else if (bt.indexOf('证书') >= 0 || bt.indexOf('申请') >= 0) { status = '学习完毕'; }
+            }
+          }
+        }
         
         // 第7列: 学习进度(如"7/7", "0/12")
         var progress = '';
