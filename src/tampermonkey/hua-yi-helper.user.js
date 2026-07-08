@@ -324,7 +324,7 @@ function killPopups() {
     var popups = document.querySelectorAll('.layui-layer, .dialog_box, [class*="popup"], [class*="modal"], [class*="overlay"]');
     for (var j = 0; j < popups.length; j++) {
       if (popups[j].style.display !== 'none') {
-        var closeBtn = popups[j].querySelector('.layui-layer-close, [class*="close"], button');
+        var closeBtn = popups[j].querySelector('.layui-layer-close, [class*="close"], button, .rig_btn, .lef_btn');
         if (closeBtn) { closeBtn.click(); } else { popups[j].style.display = 'none'; }
       }
     }
@@ -981,109 +981,94 @@ var SmartEngine = {
   
   // 处理视频页 (course_ware_polyv.aspx)
   handleVideo: function() {
-    log('[引擎] 视频页加载, 等待播放器...');
+    log('[引擎] 视频页加载, 启动播放器...');
     this.updateUI('video');
-    
-    // 清理页面限制
     cleanupRestrictions();
     
     var self = this;
     var checkCount = 0;
-    var maxChecks = 40; // 最多等40秒
+    var maxChecks = 600;
+    var videoStarted = false;
     
-    // 检测视频播放状态
-    var checkTimer = setInterval(function() {
-      if (!self._running) { clearInterval(checkTimer); return; }
-      checkCount++;
-      
+    // 立即静音并尝试播放
+    setTimeout(function() {
       try {
-        // 检查是否仍在问卷域(重定向失败)
-        if (URL.isSurvey) {
-          clearInterval(checkTimer);
-          self.handleSurvey();
-          return;
-        }
-        
-        // 检查页面URL
-        if (window.location.href.indexOf('course_ware_polyv') === -1 &&
-            window.location.href.indexOf('dcwj') >= 0) {
-          clearInterval(checkTimer);
-          self.handleSurvey();
-          return;
-        }
-        
-        // 检查完成状态 (通过检测进入考试按钮)
-        var jrks = document.getElementById('jrks');
-        if (jrks) {
-          var disabled = jrks.getAttribute('disabled');
-          if (disabled !== 'disabled') {
-            clearInterval(checkTimer);
-            log('[引擎] 视频完成! 进入考试按钮可用');
-            jrks.click();
-            return;
-          }
-        }
-        
-        // 检查课程状态文本
-        var pageText = document.body ? document.body.textContent || '' : '';
-        if (pageText.indexOf('已完成') >= 0 && pageText.indexOf('进入考试') === -1) {
-          clearInterval(checkTimer);
-          log('[引擎] 课程已完成, 返回课程列表');
-          self.nextTask();
-          self._running = false;
-          window.location.href = '/cme/index';
-          return;
-        }
-        
-        // 弹窗处理
-        killPopups();
-        
-        // 静音
         var videos = document.querySelectorAll('video');
         for (var v = 0; v < videos.length; v++) {
-          videos[v].muted = true;
-          videos[v].volume = 0;
+          try { videos[v].muted = true; videos[v].volume = 0; } catch(e) {}
         }
-        
+        if (videos.length > 0 && videos[0].paused) {
+          var p = videos[0].play();
+          if (p && p.then) {
+            p.then(function() { log('[引擎] 播放已开始'); }).catch(function(e) {});
+          }
+        }
+        // 倍速按钮
+        var rateBtn = document.querySelector('.pv-rate-btn');
+        if (rateBtn) {
+          for (var ri = 0; ri < 3; ri++) { try { rateBtn.click(); } catch(e) {} }
+          log('[引擎] 已尝试设置倍速');
+        }
       } catch(e) {
-        log('[引擎] 视频检测错误: ' + e.message);
-      }
-      
-      if (checkCount > maxChecks) {
-        clearInterval(checkTimer);
-        log('[引擎] 视频检测超时, 强制推进');
-        // 尝试查找任何可点击的按钮
-        var anyBtn = document.getElementById('jrks') || document.querySelector('input[type="button"][value*="考试"], input[type="button"][value*="完成"]');
-        if (anyBtn) {
-          anyBtn.click();
-        } else {
-          // 超时回退: 标记完成并返回
-          log('[引擎] 超时无法确定状态, 标记完成');
-          self.nextTask();
-          self._running = false;
-          window.location.href = '/cme/index';
-        }
+        log('[引擎] 播放启动错误: ' + e.message);
       }
     }, 1000);
     
-    // 保存定时器引用用于清理
+    var checkTimer = setInterval(function() {
+      if (!self._running) { clearInterval(checkTimer); return; }
+      checkCount++;
+      try {
+        killPopups();
+        
+        var video = document.querySelector('video');
+        if (video) {
+          try { video.muted = true; video.volume = 0; } catch(e) {}
+          if (!videoStarted && !video.paused) { videoStarted = true; log('[引擎] 视频正在播放'); }
+          if (!videoStarted && video.paused && checkCount % 5 === 0) {
+            try { var p = video.play(); if(p&&p.then) p.catch(function(){}); } catch(e) {}
+          }
+          var progress = video.duration > 0 ? (video.currentTime / video.duration) : 0;
+          if (checkCount % 30 === 0) {
+            var remaining = video.duration > 0 ? Math.round(video.duration - video.currentTime) : 0;
+            log('[引擎] 视频进度 ' + Math.round(progress * 100) + '% (剩余' + remaining + '秒)');
+          }
+          if (progress > 0.95 || (video.duration > 0 && video.currentTime >= video.duration - 5)) {
+            clearInterval(checkTimer);
+            log('[引擎] 视频播放完成!');
+            var jrks = document.getElementById('jrks');
+            if (jrks && jrks.offsetParent !== null) {
+              log('[引擎] 检测到进入考试, 点击后返回');
+              self._running = false;
+              jrks.click();
+            } else {
+              log('[引擎] 返回课程列表');
+              self._running = false;
+              window.location.href = '/pages/study_info_list.aspx';
+            }
+            return;
+          }
+        } else {
+          var pageText = document.body ? (document.body.textContent || '') : '';
+          if (pageText.indexOf('已完成') >= 0) {
+            clearInterval(checkTimer);
+            log('[引擎] 课程已完成');
+            self._running = false;
+            window.location.href = '/pages/study_info_list.aspx';
+            return;
+          }
+        }
+      } catch(e) {
+        log('[引擎] 视频检测错误: ' + e.message);
+      }
+      if (checkCount > maxChecks) {
+        clearInterval(checkTimer);
+        log('[引擎] 视频检测超时, 返回课程列表');
+        self._running = false;
+        window.location.href = '/pages/study_info_list.aspx';
+      }
+    }, 1000);
     window.__HY_videoCheck = checkTimer;
   },
-  
-  // 处理考试页
-  handleExam: function() {
-    log('[引擎] 考试页加载, 开始答题...');
-    this.updateUI('exam');
-    cleanupRestrictions();
-    
-    var self = this;
-    setTimeout(function() {
-      if (!self._running) return;
-      // 执行答题
-      doExam();
-    }, 2000);
-  },
-  
   // 处理考试结果页
   handleExamResult: function() {
     log('[引擎] 考试结果页');
