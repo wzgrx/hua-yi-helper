@@ -1,9 +1,9 @@
-# 华医网小助手 v3.3
+# 华医网小助手 v3.4
 
 > 全自动智能刷课 | 真实适配2026华医网Vue SPA新版 | 学分规划 | 无人值守
 
 [![License](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.3.0-brightgreen.svg)](https://github.com/wzgrx/hua-yi-helper)
+[![Version](https://img.shields.io/badge/version-3.4.1-brightgreen.svg)](https://github.com/wzgrx/hua-yi-helper)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey%20%7C%20Win11-orange.svg)](https://github.com/wzgrx/hua-yi-helper)
 
 ---
@@ -145,3 +145,33 @@
 ## 开源协议
 
 [AGPL v3](LICENSE)
+5. **版本号从未递增** - 3.2.1-3.2.6六次提交@version始终3.2.0, Tampermonkey永不更新
+
+## v3.4.0-3.4.1 功能增强 (2026-07-08)
+
+### 从任意页面启动
+- 点击执行按钮后, 自动跳转到课程列表页扫描课程并生成计划
+- 不再要求用户手动导航到特定页面
+
+### 动态年份检测
+- `targetYear` 改为 `new Date().getFullYear()`, 不再硬编码2025
+- 2026年正常识别学习记录
+
+### 答题模块增强
+- **反向题逻辑**: 题干含"不是/错误/除外"时, 取最低分选项(否定选项更可能正确)
+- **医学知识启发式**: 增加PaO2/FiO2/PEEP等医学指标, 规范指南, 剂量频率等7个评分维度
+- **答案记忆**: 正确答案持久化存储到GM_setValue, 下次遇到同指纹题目直接精确匹配
+- **考试结果解析**: 从table和div两种结构提取正确答案, 供下次考试使用
+- **选项点击可靠性**: 先直接设置input.checked=true再click, 回退到点击父元素
+
+### UI改进
+- 日志默认显示(不再隐藏)
+- 计划/执行按钮从任意页面可用
+- killPopups避免触发反作弊检测(跳过.study_diaog .btn_sign等陷阱区域)
+
+### 真实测试验证
+- 通过Codex Chrome扩展在真实91huayi.com页面验证:
+  - 视频页→考试页跳转成功(jrks.click()触发jQuery AJAX)
+  - 考试页5道题目正确解析(选项GUID随机化不影响)
+  - 学分分析: 10/25分(公需5+其他5), 缺口15分
+  - 课程列表: 12门课程正确扫描
