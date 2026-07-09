@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      4.2.0
+// @version      5.0.0
 // @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -113,7 +113,7 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "4.2.0";
+var HY_VERSION = "5.0.0";
 var HY_UPDATE_DATE = "2026.7.9";
 var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
 var HY_HISTORY = [
@@ -1553,21 +1553,45 @@ var SmartEngine = {
     doExam();
   },
   // 处理考试结果页
-  handleExamResult: function() {
+    handleExamResult: function() {
     log('[引擎] 考试结果页');
     var self = this;
+    var pageText = document.body ? document.body.innerText : '';
+    var examFailed = pageText.indexOf('考试未通过') >= 0 || pageText.indexOf('未通过') >= 0;
+    if (examFailed) {
+      log('[引擎] 考试未通过, 记录错误答案, 准备重试');
+      try {
+        var wrongAnswers = Store.g('HY_wrongAnswers', {});
+        var lines = pageText.split('\n');
+        for (var li = 0; li < lines.length; li++) {
+          var line = lines[li].trim();
+          var qMatch = line.match(/^\d+[、.](.+)/);
+          if (qMatch) {
+            var qText = qMatch[1].trim().substring(0, 50);
+            var aMatch = line.match(/您的答案[：:]\s*([A-E])/);
+            if (!aMatch && li + 1 < lines.length) aMatch = lines[li + 1].match(/您的答案[：:]\s*([A-E])/);
+            if (aMatch) { wrongAnswers[qText] = aMatch[1]; log('[引擎] 记录错误: ' + qText.substring(0, 15) + '->' + aMatch[1]); }
+          }
+        }
+        Store.s('HY_wrongAnswers', wrongAnswers);
+      } catch(e) {}
+      var task = self.getCurrentTask();
+      if (task && task.url) {
+        log('[引擎] 返回课程重新考试: ' + task.name);
+        setTimeout(function() { self._running = true; safeNavigate(task.url); }, 3000);
+      } else { safeNavigate('/pages/study_info_list.aspx'); }
+      return;
+    }
     doResult(function() {
       self.nextTask();
       self._running = false;
-      // Navigate to next task or study record
       setTimeout(function() {
         var nextTask = self.getCurrentTask();
         if (nextTask && nextTask.url) {
-          log('[引擎] 考试完成, 进入下一个任务: ' + nextTask.name);
+          log('[引擎] 进入下一个任务: ' + nextTask.name);
           self._running = true;
           safeNavigate(nextTask.url);
         } else {
-          // No more tasks - go to study record to check updated credits
           log('[引擎] 所有任务完成, 返回学习记录页');
           safeNavigate('/pages/study_info_list.aspx');
         }
@@ -2030,7 +2054,20 @@ function doResult(callback) {
     var ra = Store.g(CONFIG.keys.rightAnswers, {});
     var saved = 0;
     
-    // 从表格或div解析考试结果
+    // v5.0.0: 先从文本解析 (考试结果页可能没有table)
+    var bodyText = document.body ? document.body.innerText : "";
+    var textLines = bodyText.split("\n");
+    for (var tli = 0; tli < textLines.length; tli++) {
+      var tline = textLines[tli].trim();
+      var tqMatch = tline.match(/^\d+[、.](.+)/);
+      if (tqMatch) {
+        var tq = tqMatch[1].trim().replace(/（.*$/, "").substring(0, 50);
+        var taMatch = tline.match(/您的答案[：:]\s*[A-E][、.，,]\s*(.+)/);
+        if (!taMatch && tli + 1 < textLines.length) taMatch = textLines[tli + 1].match(/您的答案[：:]\s*[A-E][、.，,]\s*(.+)/);
+        if (taMatch) { var ta = taMatch[1].trim(); if (tq && ta && !ra[tq]) { ra[tq] = ta; saved++; } }
+      }
+    }
+    // 也从表格或div解析考试结果
     var tables = document.querySelectorAll("table.tablestyle, table");
     for (var ti = 0; ti < tables.length; ti++) {
       var rows = tables[ti].querySelectorAll("tr");
