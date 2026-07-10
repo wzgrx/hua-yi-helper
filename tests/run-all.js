@@ -35,8 +35,9 @@ console.log('\n\u{1F4DC} 油猴脚本元数据:');
 assert(content.includes('==UserScript=='), 'UserScript头');
 assert(content.includes('@match        *://*.91huayi.com/*'), '@match 91huayi');
 assert(content.includes('@match        *://dcwj.91huayi.com/*'), '@match dcwj');
-assert(content.includes('@version      6.0.6'), '版本号 6.0.6');
+assert(content.includes('@version      6.1.0'), '版本号 6.1.0');
 assert(content.includes('@run-at       document-start'), 'document-start');
+assert(content.includes('@noframes'), '只在顶层页面运行');
 assert(!content.includes('new MutationObserver'), 'document-start 不修改站点DOM完整性');
 assert(content.includes('GM_getValue'), 'GM授权');
 assert(content.includes('@exclude      *://*.91huayi.com/course_ware/course_ware_polyv.aspx*'), '播放器页面隔离');
@@ -73,6 +74,7 @@ assert(content.includes('handleVideo'), '视频处理');
 assert(content.includes('handleExam'), '考试处理');
 assert(content.includes('handleSurvey'), '问卷处理');
 assert(content.includes('handleStudyList'), '学习记录续跑处理');
+assert(content.includes("status === '待考试'"), '待考试课件直达考试');
 
 // 7. 考试模块
 console.log('\n\u{1F4DD} 考试模块:');

@@ -1,6 +1,6 @@
 {
   "name": "hua-yi-helper",
-  "version": "6.0.6",
+  "version": "6.1.0",
   "description": "华医网学习助手 v6 - 可恢复的全流程油猴自动化与 Edge 端到端验证",
   "main": "src/hermes/index.js",
   "scripts": {

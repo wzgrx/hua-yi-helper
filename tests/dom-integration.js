@@ -45,6 +45,19 @@ test('课程详情解析名称、链接与真实状态', () => {
   assert.equal(rows[0].completed, true);
   assert.equal(rows[1].status, '学习中');
   assert.match(rows[1].href, /cwid=2/);
+  assert.equal(rows[1].cwid, '2');
+});
+
+test('真实题库按题干匹配且不依赖选项序号', () => {
+  const { api } = boot('');
+  assert.equal(
+    api.getBuiltInAnswer('对于老年T2D患者（≥65岁），核心管理目标导向是？'),
+    '摒弃单纯追求体重数字下降，将功能改善与生活质量作为核心导向'
+  );
+  assert.equal(
+    api.getBuiltInAnswer('代谢手术适应症之一为重度肥胖合并T2D，其BMI阈值为？'),
+    'BMI>32.5 kg/m2'
+  );
 });
 
 test('Vue 分页课程发现跨页合并且下一页只在可用时点击', () => {

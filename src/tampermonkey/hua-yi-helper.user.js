@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      6.0.6
+// @version      6.1.0
 // @description  2026 华医网全流程学习自动化：登录、学分规划、课程学习、考试、断点恢复与诊断
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -10,6 +10,7 @@
 // @match        *://hdbl.91huayi.com/*
 // @exclude      *://*.91huayi.com/course_ware/course_ware_polyv.aspx*
 // @exclude      *://*.91huayi.com/course_ware/course_ware_cc.aspx*
+// @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -17,8 +18,8 @@
 // @grant        GM_addStyle
 // @grant        GM_info
 // @run-at       document-start
-// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.6
-// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.6
+// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.1.0
+// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.1.0
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
 // ==/UserScript==
 /*!
@@ -58,9 +59,9 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "6.0.6";
+var HY_VERSION = "6.1.0";
 var HY_UPDATE_DATE = "2026.7.10";
-var HY_UPDATE_LOG = "v6.0.6 播放器隔离：脚本不再注入受完整性检测保护的播放页，由网站原生播放器正常顺序播放";
+var HY_UPDATE_LOG = "v6.1.0 真实流程重构：待考试课件直达考试、修复面板误提交、顶层页面隔离、精确题库与状态显示";
 var HY_HISTORY = [
   "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
   "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",
@@ -505,6 +506,7 @@ var VueCourseScanner = {
         coursewares.push({
           name: name,
           href: href,
+          cwid: (href.match(/[?&]cwid=([^&#]+)/i) || [])[1] || '',
           status: status,
           completed: status === '已完成'
         });
@@ -1234,6 +1236,22 @@ var SmartEngine = {
         return;
       }
       Store.d('HY_EmptyCoursewareRetries');
+
+      // “待考试”表示视频已经由网站确认完成。播放器页受完整性保护，
+      // 不再重新进入播放器，而是使用该课件的真实 cwid 进入考试。
+      var pendingExam = null;
+      for (var pe = 0; pe < coursewares.length; pe++) {
+        if (coursewares[pe].status === '待考试' && coursewares[pe].cwid) {
+          pendingExam = coursewares[pe];
+          break;
+        }
+      }
+      if (pendingExam) {
+        log('[引擎] 进入待考试课件: ' + pendingExam.name);
+        self.updateUI('exam', pendingExam.name);
+        safeNavigate('/pages/exam.aspx?cwid=' + encodeURIComponent(pendingExam.cwid));
+        return;
+      }
       
       // 查找第一个未完成的课件
       var found = null;
@@ -2275,6 +2293,23 @@ function smartScore(text) {
   return score;
 }
 
+// 真实考试中验证过的精确题库。按题干片段和答案文本匹配，选项乱序也有效。
+var HY_BUILTIN_ANSWERS = [
+  ['体重正常但存在中心型肥胖', '以减少内脏脂肪沉积为主，更加关注腰围的改变'],
+  ['实现长期有效减重的关键', '使能量代谢处于负平衡状态'],
+  ['老年T2D患者（≥65岁）', '摒弃单纯追求体重数字下降，将功能改善与生活质量作为核心导向'],
+  ['重度肥胖合并T2D，其BMI阈值', 'BMI>32.5 kg/m2'],
+  ['MDT）全程管理体系覆盖的三个阶段', '减重期、维持期、预防反弹期']
+];
+
+function getBuiltInAnswer(questionText) {
+  var normalized = String(questionText || '').replace(/m²/g, 'm2').replace(/\s+/g, ' ');
+  for (var i = 0; i < HY_BUILTIN_ANSWERS.length; i++) {
+    if (normalized.indexOf(HY_BUILTIN_ANSWERS[i][0]) >= 0) return HY_BUILTIN_ANSWERS[i][1];
+  }
+  return '';
+}
+
 
 function getCurrentExamKey() {
   var href = location.href || '';
@@ -2361,9 +2396,22 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
     
     var storeKey = qFingerprint.substring(0, 50);
     var chosen = null;
+
+    // 策略0: 真实流程验证过的内置精确答案。
+    var builtIn = getBuiltInAnswer(qFingerprint);
+    if (builtIn) {
+      var normalizedBuiltIn = builtIn.replace(/m²/g, 'm2');
+      for (var bi = 0; bi < options.length; bi++) {
+        if (options[bi].text.replace(/m²/g, 'm2') === normalizedBuiltIn) {
+          chosen = options[bi];
+          log('[考试] ✅ 内置题库: ' + builtIn.substring(0, 24));
+          break;
+        }
+      }
+    }
     
     // 策略1: 已知正确答案 (按文本匹配, 无视选项顺序)
-    if (rightAnswers[storeKey]) {
+    if (!chosen && rightAnswers[storeKey]) {
       var known = rightAnswers[storeKey].replace(/^\s*[A-Za-z][、.，,)\s]+/, '').trim();
       for (var oi = 0; oi < options.length; oi++) {
         // 精确匹配
@@ -2649,7 +2697,7 @@ function createControlPanel() {
     "background:rgba(25,25,30,.92);border:1px solid rgba(76,176,249,.35);" +
     "border-radius:10px;padding:0;box-shadow:0 4px 24px rgba(0,0,0,.4);" +
     "font-size:12px;font-family:Microsoft YaHei,sans-serif;" +
-    "min-width:220px;color:#e0e0e0;";
+    "width:248px;max-width:calc(100vw - 24px);color:#e0e0e0;";
   
   // Header
   var header = document.createElement("div");
@@ -2720,7 +2768,7 @@ function createControlPanel() {
     var opt = document.createElement("option");
     opt.value = modes[mi].v;
     opt.textContent = modes[mi].l;
-    if (modes[mi].v === 'auto') opt.selected = true;
+    if (modes[mi].v === Store.g(CONFIG.keys.mode, 'auto')) opt.selected = true;
     modeSelect.appendChild(opt);
   }
   
@@ -2785,7 +2833,7 @@ function createControlPanel() {
   // Log area
   var logArea = document.createElement("div");
   logArea.id = "HY_log";
-  logArea.style.cssText = "display:block;background:rgba(0,0,0,.7);color:#0f0;" +
+  logArea.style.cssText = "display:none;background:rgba(0,0,0,.7);color:#0f0;" +
     "padding:6px;border-radius:4px;max-height:180px;overflow-y:auto;" +
     "font-family:monospace;font-size:10px;margin-top:6px;white-space:pre-wrap;line-height:1.4;";
   
@@ -2887,13 +2935,17 @@ function createControlPanel() {
 
 function createBtn(text, color, onClick) {
   var btn = document.createElement("button");
+  btn.type = "button";
   btn.textContent = text;
   btn.style.cssText = "flex:1;padding:5px;border:none;border-radius:4px;" +
     "color:#fff;cursor:pointer;font-size:11px;background:" + color + ";" +
     "transition:opacity .2s;";
   btn.onmouseenter = function() { btn.style.opacity = '.8'; };
   btn.onmouseleave = function() { btn.style.opacity = '1'; };
-  btn.onclick = onClick;
+  btn.onclick = function(event) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    return onClick.call(this, event);
+  };
   return btn;
 }
 
@@ -3078,6 +3130,7 @@ function mainRouter() {
       var studyCredits = VueCourseScanner.scanCreditsFromASP();
       if (studyCredits) {
         log('[学分] ASP.NET表格: 已获' + studyCredits.total + '分, 待处理' + studyCredits.courses.filter(function(c){return !c.completed;}).length + '门课');
+        try { if (window.HY_updateCredits) window.HY_updateCredits(studyCredits.total, CONFIG.targetTotal, studyCredits.public, CONFIG.publicTarget); } catch(e) {}
       }
       // If start was requested, continue with plan generation
       if (Store.g('__HY_startRequested', false) && !SmartEngine._running) {
@@ -3133,6 +3186,7 @@ if (window.__HY_TEST_MODE__) {
     smartScore: smartScore,
     chooseExamOptionWithStrategy: chooseExamOptionWithStrategy,
     getExamProbeStrategy: getExamProbeStrategy,
+    getBuiltInAnswer: getBuiltInAnswer,
     doResult: doResult,
     learnFailedSubmittedAnswersFromResult: learnFailedSubmittedAnswersFromResult,
     fillSurveyForm: fillSurveyForm,
