@@ -238,6 +238,24 @@ test('考试未通过结果页记录已尝试答案供下一轮避开', () => {
   assert.deepEqual(tries[clsKey], ['上呼吸感染']);
 });
 
+
+test('考试失败后采用单题探测而不是每题同时换答案', () => {
+  const { api } = boot('', 'https://cme28.91huayi.com/pages/exam.aspx?cwid=exam1');
+  const strategy = { examKey: 'exam1', baseline: { Q1: 'A', Q2: 'B' }, probeIndex: 1 };
+  const choice1 = api.chooseExamOptionWithStrategy({
+    storeKey: 'Q1', questionIndex: 0, questionCount: 2,
+    options: [{ text: 'A' }, { text: 'C' }], tried: ['A'], strategy,
+    isNegativeQ: false, round: 2
+  });
+  const choice2 = api.chooseExamOptionWithStrategy({
+    storeKey: 'Q2', questionIndex: 1, questionCount: 2,
+    options: [{ text: 'B' }, { text: 'D' }], tried: ['B'], strategy,
+    isNegativeQ: false, round: 2
+  });
+  assert.equal(choice1.text, 'A', '非探测题保持基线答案');
+  assert.equal(choice2.text, 'D', '当前探测题才切换到未尝试选项');
+});
+
 test('问卷先填写必需控件再返回唯一提交按钮', () => {
   const { api, window } = boot(`
     <form id="divQuestion">

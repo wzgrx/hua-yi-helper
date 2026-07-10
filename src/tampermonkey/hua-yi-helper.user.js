@@ -2344,6 +2344,73 @@ function smartScore(text) {
   return score;
 }
 
+
+function getCurrentExamKey() {
+  var href = location.href || '';
+  var match = href.match(/[?&](?:cwid|cid)=([^&#]+)/i);
+  return match ? decodeURIComponent(match[1]) : location.pathname;
+}
+
+function chooseExamOptionWithStrategy(args) {
+  var options = args.options || [];
+  var tried = args.tried || [];
+  var strategy = args.strategy || {};
+  var baseline = strategy.baseline || {};
+  var storeKey = args.storeKey;
+  var baselineText = baseline[storeKey];
+  var probeIndex = Number(strategy.probeIndex || 0);
+  if (args.questionCount > 0) probeIndex = ((probeIndex % args.questionCount) + args.questionCount) % args.questionCount;
+
+  function findByText(text) {
+    if (!text) return null;
+    for (var i = 0; i < options.length; i++) {
+      if (options[i].text === text) return options[i];
+    }
+    return null;
+  }
+  function hasTried(text) {
+    for (var i = 0; i < tried.length; i++) {
+      if (text === tried[i] || text.indexOf(tried[i]) >= 0 || tried[i].indexOf(text) >= 0) return true;
+    }
+    return false;
+  }
+  function bestUntried() {
+    var candidates = [];
+    for (var i = 0; i < options.length; i++) {
+      if (!hasTried(options[i].text)) candidates.push(options[i]);
+    }
+    if (candidates.length === 0) return null;
+    candidates.sort(function(a, b) {
+      if (args.isNegativeQ) return smartScore(a.text) - smartScore(b.text);
+      return smartScore(b.text) - smartScore(a.text);
+    });
+    return candidates[0];
+  }
+
+  // 若已有基线且本题不是当前探测题，保持基线答案，避免失败后所有题同时换答案。
+  if (baselineText && args.questionIndex !== probeIndex) {
+    var baselineOption = findByText(baselineText);
+    if (baselineOption) return baselineOption;
+  }
+
+  var chosen = bestUntried();
+  if (chosen) return chosen;
+
+  var fallbackBaseline = findByText(baselineText);
+  if (fallbackBaseline) return fallbackBaseline;
+  return options.length ? options[Math.floor(Math.random() * options.length)] : null;
+}
+
+function getExamProbeStrategy(questionCount) {
+  var examKey = getCurrentExamKey();
+  var strategy = Store.g('HY_examProbeStrategy', {});
+  if (!strategy || strategy.examKey !== examKey || !strategy.baseline) {
+    strategy = { examKey: examKey, baseline: {}, probeIndex: 0, updatedAt: Date.now() };
+  }
+  if (questionCount > 0) strategy.probeIndex = ((Number(strategy.probeIndex || 0) % questionCount) + questionCount) % questionCount;
+  return strategy;
+}
+
 // 答题核心
 function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
   var questions = findQuestions();
@@ -2352,6 +2419,7 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
   var delaySoFar = 0;
   var answered = 0;
   var submittedAnswers = {};
+  var examStrategy = getExamProbeStrategy(questions.length);
   
   for (var qi = 0; qi < questions.length; qi++) {
     var qEl = questions[qi];
@@ -2394,31 +2462,25 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
     
     if (!chosen) {
       var tried = currentTries[storeKey] || [];
-      var candidates = [];
-      
-      for (var oi3 = 0; oi3 < options.length; oi3++) {
-        var alreadyTried = false;
+      chosen = chooseExamOptionWithStrategy({
+        storeKey: storeKey,
+        questionIndex: qi,
+        questionCount: questions.length,
+        options: options,
+        tried: tried,
+        strategy: examStrategy,
+        isNegativeQ: isNegativeQ,
+        round: round
+      });
+      if (chosen) {
+        var existsTried = false;
         for (var ti = 0; ti < tried.length; ti++) {
-          if (options[oi3].text === tried[ti]) { alreadyTried = true; break; }
+          if (chosen.text === tried[ti] || chosen.text.indexOf(tried[ti]) >= 0 || tried[ti].indexOf(chosen.text) >= 0) { existsTried = true; break; }
         }
-        if (!alreadyTried) candidates.push(options[oi3]);
-      }
-      
-      if (candidates.length > 0) {
-        // 按智能评分排序 (反向题取最低分, 正向题取最高分)
-        candidates.sort(function(a, b) {
-          if (isNegativeQ) return smartScore(a.text) - smartScore(b.text);
-          return smartScore(b.text) - smartScore(a.text);
-        });
-        chosen = candidates[0];
-        tried.push(chosen.text);
+        if (!existsTried) tried.push(chosen.text);
         currentTries[storeKey] = tried;
-        log("[考试] 🔄 试错: " + chosen.text.substring(0, 20));
-      } else {
-        // 全部试过, 随机选一个(重置)
-        chosen = options[Math.floor(Math.random() * options.length)];
-        currentTries[storeKey] = [chosen.text];
-        log("[考试] ♻️ 重置试错: " + chosen.text.substring(0, 20));
+        if (!examStrategy.baseline[storeKey]) examStrategy.baseline[storeKey] = chosen.text;
+        log((examStrategy.baseline[storeKey] === chosen.text && qi !== examStrategy.probeIndex ? "[考试] 📌 基线: " : "[考试] 🔎 探测: ") + chosen.text.substring(0, 20));
       }
     }
     
@@ -2444,8 +2506,10 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
   window.__HY_examState = {
     rightAnswers: rightAnswers,
     currentTries: currentTries,
+    examStrategy: examStrategy,
     round: round
   };
+  Store.s('HY_examProbeStrategy', examStrategy);
   Store.s('HY_LastSubmittedAnswers', submittedAnswers);
   
   log("[考试] 已答 " + answered + " 题");
@@ -2460,6 +2524,11 @@ function submitExam() {
   }
   if (state && state.currentTries) {
     Store.s("HY_examTries", state.currentTries);
+  }
+  if (state && state.examStrategy) {
+    state.examStrategy.probeIndex = Number(state.examStrategy.probeIndex || 0) + 1;
+    state.examStrategy.updatedAt = Date.now();
+    Store.s('HY_examProbeStrategy', state.examStrategy);
   }
   
   // 查找提交/交卷按钮
@@ -3144,6 +3213,8 @@ if (window.__HY_TEST_MODE__) {
     getQuestionFingerprint: getQuestionFingerprint,
     extractOptions: extractOptions,
     smartScore: smartScore,
+    chooseExamOptionWithStrategy: chooseExamOptionWithStrategy,
+    getExamProbeStrategy: getExamProbeStrategy,
     doResult: doResult,
     learnFailedSubmittedAnswersFromResult: learnFailedSubmittedAnswersFromResult,
     fillSurveyForm: fillSurveyForm,
