@@ -64,6 +64,25 @@ test('Vue 分页课程发现跨页合并且下一页只在可用时点击', () =
   assert.equal(api.VueCourseScanner.advanceVuePage(), false);
 });
 
+test('Vue 新版项目卡无标题类时从首行解析名称和学分', () => {
+  const { api } = boot(`
+    <div class="pro_cent"><ul>
+      <li class="jet_lis">
+        <a href="/pages/course.aspx?cid=abc" target="_blank"></a>
+        “因地制宜”寒地缺血性心脏病的精准治疗
+        <p>前沿进展</p>
+        <p>国家级 2.0学分</p>
+        <p>项目编号：</p><p>2026-03-01-046(国)</p>
+      </li>
+    </ul></div>
+  `, 'https://cme28.91huayi.com/cme/index');
+  const courses = api.VueCourseScanner.scanFromVueSPA();
+  assert.equal(courses.length, 1);
+  assert.equal(courses[0].name, '“因地制宜”寒地缺血性心脏病的精准治疗');
+  assert.equal(courses[0].credit, 2);
+  assert.match(courses[0].link, /cid=abc/);
+});
+
 test('学习记录只把已申请计入已获学分', () => {
   const { api } = boot(`
     <table><thead><tr>${'<th>x</th>'.repeat(8)}</tr></thead><tbody>

@@ -432,6 +432,58 @@ var VueCourseScanner = {
   },
 
   // 从Vue SPA页面扫描课程卡片
+  parseVueCourseCard: function(card, index) {
+    var nameEl = card.querySelector('.test_tit') || card.querySelector('h3, h4, [class*="title"], [class*="name"]');
+    var rawText = (card.innerText || card.textContent || '').trim();
+    var lines = rawText.split(/\n+/).map(function(line) {
+      return line.replace(/\s+/g, ' ').trim();
+    }).filter(Boolean);
+    var name = nameEl ? (nameEl.textContent || '').trim() : '';
+    if (!name) {
+      for (var li = 0; li < lines.length; li++) {
+        if (!/^(国家级|省级|市级|项目编号|项目负责人|负责人单位|关注度|基础训练|学习提高|前沿进展|专业科目|公需科目|[\d.]+\s*学分)$/.test(lines[li]) &&
+            lines[li].indexOf('学分') < 0 && lines[li].length > 2) {
+          name = lines[li];
+          break;
+        }
+      }
+    }
+    if (!name) name = '课程 ' + (index + 1);
+
+    var linkEl = card.querySelector('a[href*="course.aspx?cid="]');
+    var link = linkEl ? linkEl.href : '';
+    if (linkEl && linkEl.target === '_blank') linkEl.target = '_self';
+
+    var credit = 0;
+    for (var ci = 0; ci < lines.length; ci++) {
+      var cm = lines[ci].match(/([\d.]+)\s*学分/);
+      if (cm) { credit = parseFloat(cm[1]); break; }
+    }
+    if (!credit) {
+      var spanText = Array.from(card.querySelectorAll('span, p, div')).map(function(el) {
+        return el.textContent || '';
+      }).join(' ');
+      var cm2 = spanText.match(/([\d.]+)\s*学分/);
+      if (cm2) credit = parseFloat(cm2[1]);
+    }
+    if (!credit) credit = 1;
+
+    var status = '未学习';
+    if (/已申请|已完成/.test(rawText)) status = '已完成';
+    else if (/待考试|考试/.test(rawText)) status = '待考试';
+    else if (/学习中|播放至|继续学习/.test(rawText)) status = '学习中';
+
+    return {
+      name: name,
+      link: link,
+      credit: credit,
+      status: status,
+      isPublic: /公需|公共/.test(name + rawText),
+      isInteractive: !!card.querySelector('.jet_icon, [class*="interactive"], [class*="case"]'),
+      completed: status === '已完成'
+    };
+  },
+
   scanFromVueSPA: function() {
     var courses = [];
     try {
@@ -480,57 +532,7 @@ var VueCourseScanner = {
       
       for (var i = 0; i < cards.length; i++) {
         try {
-          var card = cards[i];
-          
-          // 课程名称: p.test_tit
-          var nameEl = card.querySelector('.test_tit') || card.querySelector('h3, h4, [class*="title"], [class*="name"]');
-          var name = nameEl ? (nameEl.textContent || '').trim() : '';
-          if (!name) name = '课程 ' + (i + 1);
-          
-          // 课程链接: div.jet_head > a[href*="course.aspx?cid="]
-          var linkEl = card.querySelector('a[href*="course.aspx?cid="]');
-          var link = linkEl ? linkEl.href : '';
-          
-          // 防止新标签页
-          if (linkEl && linkEl.target === '_blank') {
-            linkEl.target = '_self';
-          }
-          
-          // 学分: 从包含"学分"文本的span提取
-          var creditSpan = card.querySelector('span');
-          var credit = 0;
-          if (creditSpan) {
-            var spanText = creditSpan.textContent || '';
-            var cm = spanText.match(/([\d.]+)\s*学分/);
-            if (cm) credit = parseFloat(cm[1]);
-          }
-          // 回退: 从整个卡片文本中找学分
-          if (credit === 0) {
-            var cardText = card.textContent || '';
-            var cm2 = cardText.match(/([\d.]+)\s*学分/);
-            if (cm2) credit = parseFloat(cm2[1]);
-          }
-          if (credit === 0) credit = 1; // 默认1分
-          
-          // 课程状态: 从卡片文本分析
-          var status = '未学习';
-          var cardText = card.textContent || '';
-          if (cardText.indexOf('已完成') >= 0) status = '已完成';
-          else if (cardText.indexOf('待考试') >= 0) status = '待考试';
-          else if (cardText.indexOf('学习中') >= 0 || cardText.indexOf('播放至') >= 0) status = '学习中';
-          
-          // 互动病例标记
-          var isInteractive = card.querySelector('.jet_icon') !== null;
-          
-          courses.push({
-            name: name,
-            link: link,
-            credit: credit,
-            status: status,
-            isPublic: name.indexOf('公需') >= 0,
-            isInteractive: isInteractive,
-            completed: status === '已完成'
-          });
+          courses.push(this.parseVueCourseCard(cards[i], i));
         } catch(e) {
           log('[VUE扫描] 卡片解析错误: ' + e.message);
         }
@@ -2998,6 +3000,7 @@ if (window.__HY_TEST_MODE__) {
     Store: Store,
     URL: URL,
     VueCourseScanner: VueCourseScanner,
+    parseVueCourseCard: VueCourseScanner.parseVueCourseCard.bind(VueCourseScanner),
     CreditPlanner: CreditPlanner,
     SmartEngine: SmartEngine,
     LoginController: LoginController,
