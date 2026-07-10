@@ -2518,10 +2518,14 @@ function learnFailedSubmittedAnswersFromResult() {
   var count = 0;
   var normalized = pageText.replace(/\r/g, '\n').replace(/\s+/g, ' ');
   function cleanQ(text) {
-    return String(text || '').replace(/\s+/g, ' ').trim().substring(0, 50);
+    return String(text || '')
+      .replace(/^\s*\d+[、.，,\s)\]]+/, '')
+      .replace(/\s+/g, ' ').trim().substring(0, 50);
   }
   function cleanA(letter, text) {
-    return String((text || '').trim() || letter || '').replace(/\s+/g, ' ').trim();
+    return String((text || '').trim() || letter || '')
+      .replace(/^\s*[A-Za-z][、.，,)\s]*/, '')
+      .replace(/\s+/g, ' ').trim();
   }
   var pattern = /(\d+[、.]\s*[^【]+?)\s*【您的答案[：:]\s*([A-Z])[、.，,)\s]*([^】]+)】/g;
   var match;

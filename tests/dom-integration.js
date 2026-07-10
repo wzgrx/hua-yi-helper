@@ -231,8 +231,11 @@ test('考试未通过结果页记录已尝试答案供下一轮避开', () => {
   assert.equal(api.learnFailedSubmittedAnswersFromResult(), 2);
   const tries = values.get('HY_examTries');
   const keys = Object.keys(tries);
-  assert.deepEqual(tries[keys.find(k => k.includes('静脉引流不畅'))], ['补液']);
-  assert.deepEqual(tries[keys.find(k => k.includes('毛细血管渗漏'))], ['上呼吸感染']);
+  const venousKey = keys.find(k => k.includes('静脉引流不畅'));
+  const clsKey = keys.find(k => k.includes('毛细血管渗漏'));
+  assert(!/^\d+[、.]/.test(venousKey), '失败题目键应与考试页指纹一致，去掉随机序号');
+  assert.deepEqual(tries[venousKey], ['补液']);
+  assert.deepEqual(tries[clsKey], ['上呼吸感染']);
 });
 
 test('问卷先填写必需控件再返回唯一提交按钮', () => {
