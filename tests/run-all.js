@@ -35,7 +35,7 @@ console.log('\n\u{1F4DC} 油猴脚本元数据:');
 assert(content.includes('==UserScript=='), 'UserScript头');
 assert(content.includes('@match        *://*.91huayi.com/*'), '@match 91huayi');
 assert(content.includes('@match        *://dcwj.91huayi.com/*'), '@match dcwj');
-assert(content.includes('@version      6.0.0'), '版本号 6.0.0');
+assert(content.includes('@version      6.0.1'), '版本号 6.0.1');
 assert(content.includes('@run-at       document-start'), 'document-start');
 assert(content.includes('GM_getValue'), 'GM授权');
 assert(content.includes('tesseract.js@5.1.1'), '本地图形验证码 OCR');

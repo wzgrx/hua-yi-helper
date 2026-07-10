@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      6.0.0
+// @version      6.0.1
 // @description  2026 华医网全流程学习自动化：登录、学分规划、课程学习、考试、断点恢复与诊断
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -114,9 +114,9 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "6.0.0";
+var HY_VERSION = "6.0.1";
 var HY_UPDATE_DATE = "2026.7.10";
-var HY_UPDATE_LOG = "v6.0.0 状态机重构：跨页面持久化、真实播放监控、答题可靠性、登录适配、可验证测试";
+var HY_UPDATE_LOG = "v6.0.1 状态机重构：跨页面持久化、真实播放监控、答题可靠性、登录适配、可验证测试";
 var HY_HISTORY = [
   "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
   "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",

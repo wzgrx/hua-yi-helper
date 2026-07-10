@@ -1,9 +1,9 @@
-# 华医网学习助手 v6.0.0
+# 华医网学习助手 v6.0.1
 
 > 面向 2026 年华医网新版混合站点的油猴自动化脚本：登录辅助、学分规划、课程发现、视频/互动病例/问卷/考试流程、进度核验与异常恢复。
 
 [![License](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-6.0.0-brightgreen.svg)](https://github.com/wzgrx/hua-yi-helper)
+[![Version](https://img.shields.io/badge/version-6.0.1-brightgreen.svg)](https://github.com/wzgrx/hua-yi-helper)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey%20%7C%20Edge%20%7C%20Win11-orange.svg)](https://github.com/wzgrx/hua-yi-helper)
 
 ## 当前版本重点
@@ -94,7 +94,7 @@ npm run full
 
 ## 版本记录
 
-### v6.0.0
+### v6.0.1
 
 - 全面重构登录、学分规划、课程发现、执行恢复、视频、问卷、考试、互动病例逻辑。
 - 增加 Tesseract.js 本地图形验证码 OCR。
