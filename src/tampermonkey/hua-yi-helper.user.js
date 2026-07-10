@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         华医网学习助手 v7
+// @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
 // @version      7.0.0
 // @description  基于2026真实页面重写的华医网学习流程助手：课程、原生播放、考试、证书与断点恢复
