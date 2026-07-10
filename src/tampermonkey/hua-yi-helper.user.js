@@ -215,7 +215,8 @@ var URL = (function() {
     // ASP.NET pages
     isCourseDetail: last === 'course.aspx' && href.indexOf('cid=') !== -1,
     // Certificate application page
-    isCertificateApply: last === 'apply_certificate.aspx',
+    isCertificateApply: last === 'apply_certificate.aspx' || last === 'apply_certificate_top.aspx',
+    isCardSelect: last === 'card_select.aspx',
     isCourseList: (last === 'course.aspx' && href.indexOf('cid=') === -1) || last === 'cme.aspx',
     isCME: last === 'cme.aspx',
     isStudyList: last === 'study_info_list.aspx',
@@ -691,6 +692,9 @@ var VueCourseScanner = {
             var ocMatch = oc.match(/(?:location\.href\s*=|window\.open\s*\()\s*["']([^"']+)["']/);
             actionUrl = actionBtn2.getAttribute('href') || actionBtn2.getAttribute('data-url') || (ocMatch ? ocMatch[1] : '');
             if (/^javascript:/i.test(actionUrl)) actionUrl = '';
+            if (actionUrl) {
+              try { actionUrl = new URL(actionUrl, location.href).href; } catch(eu) {}
+            }
           }
         }
         
@@ -843,10 +847,13 @@ var CreditPlanner = {
     
     // 只选择有真实入口且能继续处理的课程；绝不再用课程名称伪造 cid。
     var unfinished = analysis.courses.filter(function(c) {
-      return !c.completed && !c.needsCertificate && !!(c.actionUrl || c.link);
+      return !c.completed && !!(c.actionUrl || c.link);
     });
 
     unfinished.sort(function(a, b) {
+      var aCert = a.needsCertificate ? 0 : 1;
+      var bCert = b.needsCertificate ? 0 : 1;
+      if (aCert !== bCert) return aCert - bCert;
       var aExam = a.needsExam ? 0 : 1;
       var bExam = b.needsExam ? 0 : 1;
       if (aExam !== bExam) return aExam - bExam;
@@ -1720,25 +1727,110 @@ var SmartEngine = {
   
   // 处理申请证书页 (apply_certificate.aspx)
   handleCertificateApply: function() {
-    log('[引擎] 申请证书页 - 需要卡密, 跳过此课程');
-    log('[引擎] 证书申请需要卡密(card key), 不自动操作');
+    log('[引擎] 申请证书页 - 填写评价并申请学分');
     var self = this;
     setTimeout(function() {
-      self.nextTask();
-      self._running = false;
-      setTimeout(function() {
+      try {
+        var pageText = document.body ? document.body.innerText : '';
+        if (/申请成功|已申请|证书已申请/.test(pageText)) {
+          log('[引擎] 证书申请成功，返回学习记录核验');
+          self.nextTask();
+          safeNavigate('/pages/study_info_list.aspx');
+          return;
+        }
+
+        var radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        var groups = {};
+        radios.forEach(function(input) {
+          if (!groups[input.name]) groups[input.name] = [];
+          groups[input.name].push(input);
+        });
+        Object.keys(groups).forEach(function(name) {
+          var first = groups[name].filter(isElementEnabled)[0] || groups[name][0];
+          if (first && !groups[name].some(function(input) { return input.checked; })) {
+            first.click();
+          }
+        });
+
+        var checkedBoxes = 0;
+        Array.from(document.querySelectorAll('input[type="checkbox"]')).forEach(function(input) {
+          if (checkedBoxes < 2 && isElementEnabled(input) && !input.checked) {
+            input.click();
+            checkedBoxes++;
+          } else if (input.checked) {
+            checkedBoxes++;
+          }
+        });
+
+        Array.from(document.querySelectorAll('textarea')).forEach(function(textarea) {
+          if (!textarea.value) {
+            textarea.value = '课程内容实用，讲解清晰，收获较大。';
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            textarea.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        });
+
+        var buttons = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button, a'));
+        var applyBtn = buttons.find(function(btn) {
+          var text = (btn.value || btn.innerText || btn.textContent || '').trim();
+          return isElementEnabled(btn) && /是的.*申请|我申请|确认申请|去确认|提交/.test(text) && !/不|取消|返回/.test(text);
+        });
+        if (applyBtn) {
+          log('[引擎] 点击证书申请按钮: ' + (applyBtn.value || applyBtn.innerText || '').trim());
+          applyBtn.click();
+          setTimeout(function() {
+            var okBtn = document.getElementById('btn_preapply_tip_ok') ||
+              Array.from(document.querySelectorAll('input[type="button"], button, a')).find(function(btn) {
+                var text = (btn.value || btn.innerText || btn.textContent || '').trim();
+                return isElementEnabled(btn) && /我知道了|确定|确认/.test(text);
+              });
+            if (okBtn) okBtn.click();
+            setTimeout(function() { safeNavigate('/pages/study_info_list.aspx'); }, 3000);
+          }, 2000);
+        } else {
+          log('[引擎] 未找到证书申请按钮，返回学习记录核验');
+          safeNavigate('/pages/study_info_list.aspx');
+        }
+      } catch(e) {
+        log('[引擎] 证书申请处理错误: ' + e.message);
+        safeNavigate('/pages/study_info_list.aspx');
+      }
+    }, 1000);
+  },
+
+  handleCardSelect: function() {
+    log('[引擎] 培训卡选择页');
+    var self = this;
+    setTimeout(function() {
+      var text = document.body ? document.body.innerText : '';
+      var noCards = /可用培训卡\s*\(0\)|这里空空的|没有可用|去绑卡\/购卡/.test(text);
+      if (noCards) {
+        log('[引擎] 当前无可用培训卡，跳过本证书申请任务，继续后续课程');
+        self.nextTask();
         var nextTask = self.getCurrentTask();
         if (nextTask && nextTask.url) {
-          log('[引擎] 跳过证书申请, 进入下一个任务: ' + nextTask.name);
           self._running = true;
           safeNavigate(nextTask.url);
         } else {
-          log('[引擎] 所有任务完成, 返回学习记录页');
           safeNavigate('/pages/study_info_list.aspx');
         }
-      }, 2000);
-    }, 1000);
+        return;
+      }
+      var confirmBtn = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button, a')).find(function(btn) {
+        var btnText = (btn.value || btn.innerText || btn.textContent || '').trim();
+        return isElementEnabled(btn) && /确认使用|确认|提交/.test(btnText);
+      });
+      if (confirmBtn) {
+        log('[引擎] 使用可用培训卡申请证书');
+        confirmBtn.click();
+        setTimeout(function() { safeNavigate('/pages/study_info_list.aspx'); }, 4000);
+      } else {
+        log('[引擎] 未找到培训卡确认按钮，返回学习记录核验');
+        safeNavigate('/pages/study_info_list.aspx');
+      }
+    }, 1500);
   },
+
   // 更新UI状态
   updateUI: function(state, label) {
     try {
@@ -2830,6 +2922,10 @@ function mainRouter() {
       // 申请证书页 - 自动点击申请按钮
       log('[路由] 申请证书页');
       SmartEngine.handleCertificateApply();
+    }
+    else if (URL.isCardSelect) {
+      log('[路由] 培训卡选择页');
+      SmartEngine.handleCardSelect();
     }
     else if (URL.isCourseDetail) {
       // 课程详情页

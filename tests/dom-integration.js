@@ -95,6 +95,23 @@ test('学习记录只把已申请计入已获学分', () => {
   assert.equal(result.courses[1].needsExam, true);
 });
 
+test('学习完毕且有申请证书按钮的课程进入计划', () => {
+  const { api } = boot(`
+    <table><thead><tr><th>项目名称</th><th>项目编号</th><th>学分类型</th><th>学习状态</th><th>学分申请时间</th><th>机构</th><th>学习进度</th><th>操作</th></tr></thead><tbody>
+      <tr><td><a href="course.aspx?cid=done">待申请证书课</a></td><td>2026-03-01-001(国)</td><td>国家级 2.0学分</td><td>学习完毕</td><td>无申请时间</td><td>宁夏</td><td>7/7</td><td><input type="button" value="申请证书" onclick="window.open('apply_certificate.aspx?cid=done')"></td></tr>
+    </tbody></table>`, 'https://cme28.91huayi.com/pages/study_info_list.aspx');
+  const analysis = api.CreditPlanner.analyze();
+  const plan = api.CreditPlanner.generatePlan(analysis);
+  assert.equal(analysis.courses[0].needsCertificate, true);
+  assert.equal(plan.tasks[0].needsCertificate, true);
+  assert.match(plan.tasks[0].url, /apply_certificate\.aspx\?cid=done/);
+});
+
+test('培训卡选择页可被路由识别', () => {
+  const { api } = boot('<main>可用培训卡(0)</main>', 'https://cme28.91huayi.com/pages/card_select.aspx?from=2&cid=x');
+  assert.equal(api.URL.isCardSelect, true);
+});
+
 test('学习记录按目标年度过滤历史课程', () => {
   const { api } = boot(`
     <table><thead><tr><th>项目名称</th><th>年度</th><th>学分</th><th>学习状态</th><th>x</th><th>x</th><th>学习进度</th><th>操作</th></tr></thead><tbody>
