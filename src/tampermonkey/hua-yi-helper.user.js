@@ -1013,6 +1013,45 @@ function fillSurveyForm() {
   return { answered: answered, submit: submit };
 }
 
+function findInteractiveAction() {
+  var scopes = [
+    document.querySelector('.case-main, .case-content, .study-main, .content, #app, #root'),
+    document.body
+  ].filter(Boolean);
+  var startTexts = ['查看病例', '开始学习', '进入病例', '继续学习'];
+  var nextTexts = ['下一步', '继续', '下一页', '完成学习', '完成', '提交'];
+  var denyTexts = ['删除', '退出', '返回', '关闭', '取消', '重置', '上一页', '上一步'];
+  function normalize(text) { return String(text || '').replace(/\s+/g, '').trim(); }
+  function visible(el) {
+    if (!el) return false;
+    if (el.offsetWidth || el.offsetHeight || el.getClientRects().length) return true;
+    var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+    return !!(style && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0');
+  }
+  function candidateElements(root) {
+    return Array.from(root.querySelectorAll('button, a[href], input[type="button"], input[type="submit"], [role="button"], .btn, [class*="button"]'));
+  }
+  for (var s = 0; s < scopes.length; s++) {
+    var buttons = candidateElements(scopes[s]).filter(function(el) {
+      if (!visible(el) || !isElementEnabled(el)) return false;
+      var text = normalize(el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || el.title);
+      if (!text || denyTexts.indexOf(text) >= 0) return false;
+      return startTexts.indexOf(text) >= 0 || nextTexts.indexOf(text) >= 0;
+    });
+    if (buttons.length) {
+      buttons.sort(function(a, b) {
+        var at = normalize(a.innerText || a.textContent || a.value || a.getAttribute('aria-label') || a.title);
+        var bt = normalize(b.innerText || b.textContent || b.value || b.getAttribute('aria-label') || b.title);
+        var ap = startTexts.indexOf(at) >= 0 ? 0 : 1;
+        var bp = startTexts.indexOf(bt) >= 0 ? 0 : 1;
+        return ap - bp;
+      });
+      return buttons[0];
+    }
+  }
+  return null;
+}
+
 var SmartEngine = {
   _running: false,
   _currentPage: '',
@@ -1382,31 +1421,11 @@ var SmartEngine = {
       caseCheckCount++;
       
       try {
-        // Look for '查看病例' button or any clickable element to start
-        var startBtn = null;
-        var allEls = document.querySelectorAll('div, span, a, button, [class*="btn"]');
-        for (var i = 0; i < allEls.length; i++) {
-          var txt = (allEls[i].textContent || '').trim();
-          if (txt === '查看病例' || txt === '开始学习' || txt === '进入病例') {
-            startBtn = allEls[i];
-            break;
-          }
-        }
-        
-        if (startBtn && caseCheckCount <= 3) {
-          log('[引擎] 点击查看病例');
-          try { startBtn.click(); } catch(e) {}
-        }
-        
-        // Look for '下一步' / '继续' / '完成' buttons to progress through the case
-        var progressBtns = document.querySelectorAll('div, span, a, button, [class*="btn"]');
-        for (var j = 0; j < progressBtns.length; j++) {
-          var pt = (progressBtns[j].textContent || '').trim();
-          if (pt === '下一步' || pt === '继续' || pt === '完成' || pt === '下一页' || pt === '确认') {
-            try { progressBtns[j].click(); } catch(e) {}
-            log('[引擎] 互动病例: 点击 ' + pt);
-            break;
-          }
+        var action = findInteractiveAction();
+        if (action) {
+          var actionText = (action.innerText || action.textContent || action.value || action.getAttribute('aria-label') || action.title || '').trim();
+          try { action.click(); } catch(e) {}
+          log('[引擎] 互动病例: 点击 ' + actionText);
         }
         
         // Check if completed (redirect back or completion text)
@@ -2958,7 +2977,8 @@ if (window.__HY_TEST_MODE__) {
     smartScore: smartScore,
     doResult: doResult,
     fillSurveyForm: fillSurveyForm,
-    isElementEnabled: isElementEnabled
+    isElementEnabled: isElementEnabled,
+    findInteractiveAction: findInteractiveAction
   };
 }
 // 根据DOM就绪状态启动

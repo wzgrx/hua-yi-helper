@@ -202,4 +202,16 @@ test('disabled、aria-disabled 与 CSS disabled 均不可用', () => {
   assert.equal(api.isElementEnabled(window.document.getElementById('c')), false);
 });
 
+test('互动病例只点击可见可用的安全推进按钮', () => {
+  const { api } = boot(`
+    <main class="case-main">
+      <button id="back">返回</button>
+      <span role="button" id="fake">确认</span>
+      <button id="disabled" disabled>下一步</button>
+      <button id="next">下一步</button>
+    </main>
+  `, 'https://hdbl.91huayi.com/case');
+  assert.equal(api.findInteractiveAction().id, 'next');
+});
+
 console.log('========================================\n');
