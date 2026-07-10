@@ -2511,6 +2511,40 @@ function submitExam() {
   }
 }
 
+function learnFailedSubmittedAnswersFromResult() {
+  var pageText = document.body ? (document.body.innerText || document.body.textContent || '') : '';
+  if (pageText.indexOf('考试未通过') < 0 || pageText.indexOf('您的答案') < 0) return 0;
+  var currentTries = Store.g('HY_examTries', {});
+  var count = 0;
+  var normalized = pageText.replace(/\r/g, '\n').replace(/\s+/g, ' ');
+  function cleanQ(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim().substring(0, 50);
+  }
+  function cleanA(letter, text) {
+    return String((text || '').trim() || letter || '').replace(/\s+/g, ' ').trim();
+  }
+  var pattern = /(\d+[、.]\s*[^【]+?)\s*【您的答案[：:]\s*([A-Z])[、.，,)\s]*([^】]+)】/g;
+  var match;
+  while ((match = pattern.exec(normalized))) {
+    var q = cleanQ(match[1]);
+    var a = cleanA(match[2], match[3]);
+    if (!q || !a) continue;
+    if (!currentTries[q]) currentTries[q] = [];
+    var exists = currentTries[q].some(function(old) {
+      return old === a || old.indexOf(a) >= 0 || a.indexOf(old) >= 0;
+    });
+    if (!exists) {
+      currentTries[q].push(a);
+      count++;
+    }
+  }
+  if (count > 0) {
+    Store.s('HY_examTries', currentTries);
+    log('[考试结果] 已从未通过结果页记录 ' + count + ' 个失败选项，下一轮自动避开');
+  }
+  return count;
+}
+
 // 处理考试结果
 function doResult(callback) {
   log("[考试结果] 解析结果并保存可验证的正确答案...");
@@ -2529,6 +2563,7 @@ function doResult(callback) {
     var right = Store.g(CONFIG.keys.rightAnswers, {});
     var submitted = Store.g('HY_LastSubmittedAnswers', {});
     var saved = 0;
+    learnFailedSubmittedAnswersFromResult();
 
     function submittedFor(question) {
       if (submitted[question]) return submitted[question];
@@ -3106,6 +3141,7 @@ if (window.__HY_TEST_MODE__) {
     extractOptions: extractOptions,
     smartScore: smartScore,
     doResult: doResult,
+    learnFailedSubmittedAnswersFromResult: learnFailedSubmittedAnswersFromResult,
     fillSurveyForm: fillSurveyForm,
     isElementEnabled: isElementEnabled,
     findInteractiveAction: findInteractiveAction

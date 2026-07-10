@@ -218,6 +218,23 @@ test('考试结果只学习结果页明确验证为正确的已提交答案', ()
   assert.equal(values.has('HY_LastSubmittedAnswers'), false);
 });
 
+test('考试未通过结果页记录已尝试答案供下一轮避开', () => {
+  const { api, values } = boot(`
+    <main>
+      <h2>考试未通过</h2>
+      <p>1、关于ECMO 静脉引流不畅的原因，描述不正确的是（）</p>
+      <p>【您的答案： B、补液】</p>
+      <p>2、毛细血管渗漏综合征的病因有，不正确的是（）</p>
+      <p>【您的答案： D、上呼吸感染】</p>
+    </main>
+  `, 'https://cme28.91huayi.com/pages/exam_result.aspx');
+  assert.equal(api.learnFailedSubmittedAnswersFromResult(), 2);
+  const tries = values.get('HY_examTries');
+  const keys = Object.keys(tries);
+  assert.deepEqual(tries[keys.find(k => k.includes('静脉引流不畅'))], ['补液']);
+  assert.deepEqual(tries[keys.find(k => k.includes('毛细血管渗漏'))], ['上呼吸感染']);
+});
+
 test('问卷先填写必需控件再返回唯一提交按钮', () => {
   const { api, window } = boot(`
     <form id="divQuestion">
