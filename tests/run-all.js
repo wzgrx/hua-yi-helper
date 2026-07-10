@@ -4,7 +4,7 @@ const assert = require('assert');
 const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'tampermonkey', 'hua-yi-helper.user.js'), 'utf8');
 const checks = [
   ['UserScript 元数据', /==UserScript==/.test(source)],
-  ['v7 版本', /@version\s+7\.0\.0/.test(source)],
+  ['v7 版本', /@version\s+7\.0\.\d+/.test(source)],
   ['顶层页面隔离', /@noframes/.test(source)],
   ['无外部依赖', !/@require\s/.test(source)],
   ['单一 v7 状态', /HY7_STATE/.test(source)],

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      7.0.0
+// @version      7.0.1
 // @description  基于2026真实页面重写的华医网学习流程助手：课程、原生播放、考试、证书与断点恢复
 // @author       wzgrx
 // @license      AGPL-3.0
@@ -13,15 +13,15 @@
 // @grant        GM_info
 // @run-at       document-start
 // @noframes
-// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.0
-// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.0
+// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.1
+// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.1
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  var VERSION = '7.0.0';
+  var VERSION = '7.0.1';
   var STATE_KEY = 'HY7_STATE';
   var ANSWER_KEY = 'HY7_ANSWERS';
   var EXAM_KEY = 'HY7_EXAMS';
@@ -60,6 +60,77 @@
     return !element.disabled && !element.hasAttribute('disabled') &&
       clean(element.getAttribute('aria-disabled')).toLowerCase() !== 'true' &&
       !/(^|\s)(disabled|is-disabled)(\s|$)/i.test(String(element.className || ''));
+  }
+  function pageText() {
+    return document.body ? document.body.innerText || document.body.textContent || '' : '';
+  }
+  function classText(element) {
+    return String(element && element.className || '');
+  }
+  function elementRect(element) {
+    try {
+      var rect = element.getBoundingClientRect();
+      return { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) };
+    } catch (_) {
+      return { x: 0, y: 0, w: 0, h: 0 };
+    }
+  }
+  function looksClickable(element) {
+    if (!element) return false;
+    var tag = String(element.tagName || '').toLowerCase();
+    if (/^(button|a|input|select|textarea)$/.test(tag)) return true;
+    if (element.getAttribute('role') === 'button') return true;
+    if (element.hasAttribute('onclick') || element.hasAttribute('tabindex')) return true;
+    if (/(btn|button|click|view|next|submit|primary|footer|case|start|continue)/i.test(classText(element))) return true;
+    return false;
+  }
+  function uniqueElements(list) {
+    var seen = [];
+    return list.filter(function (item) {
+      if (!item || seen.indexOf(item) >= 0) return false;
+      seen.push(item);
+      return true;
+    });
+  }
+  function findSemanticActions(pattern, denyPattern, options) {
+    options = options || {};
+    var selectors = options.selectors || [
+      'button', 'a[href]', 'input[type="button"]', 'input[type="submit"]',
+      '[role="button"]', '[onclick]', '[tabindex]',
+      '.van-button', '.nut-button', '.adm-button', '.ant-btn',
+      'span[class]', 'div[class]'
+    ].join(',');
+    return uniqueElements(Array.from(document.querySelectorAll(selectors))).map(function (element) {
+      var text = actionText(element);
+      var rect = elementRect(element);
+      var score = 0;
+      if (pattern && pattern.test(text)) score += 100;
+      if (looksClickable(element)) score += 15;
+      if (rect.w > 20 && rect.h > 14) score += 8;
+      if (denyPattern && denyPattern.test(text)) score -= 200;
+      if (!enabled(element)) score -= 200;
+      if (!text || text.length > (options.maxText || 22)) score -= 30;
+      if (options.score) score += options.score(element, text, rect) || 0;
+      return { element: element, text: text, score: score, rect: rect };
+    }).filter(function (item) {
+      return item.score > 0;
+    }).sort(function (a, b) { return b.score - a.score; });
+  }
+  function actionText(element) {
+    if (!element) return '';
+    return clean(element.value || element.innerText || element.textContent ||
+      element.getAttribute('aria-label') || element.getAttribute('title'));
+  }
+  function humanClick(element) {
+    if (!element || !enabled(element)) return false;
+    try {
+      ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(function (type) {
+        element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      });
+      return true;
+    } catch (_) {
+      try { element.click(); return true; } catch (__) { return false; }
+    }
   }
 
   function defaultState() {
@@ -233,7 +304,7 @@
     window.__HY7_TIMER = setInterval(function () {
       if (!state.running || state.paused) { clearInterval(window.__HY7_TIMER); return; }
       count++;
-      var bodyText = document.body ? document.body.innerText || '' : '';
+      var bodyText = pageText();
       if (/系统检测到此浏览器安装了异常插件/.test(bodyText)) {
         clearInterval(window.__HY7_TIMER);
         setState({ running: false, paused: true, phase: 'blocked', message: '播放器检测到其他异常插件' });
@@ -330,7 +401,7 @@
   }
 
   function parseResultAnswers() {
-    var text = document.body ? document.body.innerText || '' : '';
+    var text = pageText();
     var blocks = text.split(/(?=\d+[、.])/);
     return blocks.map(function (block) {
       var q = block.match(/^\d+[、.]\s*([^【\n]+)/);
@@ -340,7 +411,7 @@
   }
   function handleResult() {
     if (!state.running) return;
-    var text = document.body ? document.body.innerText || '' : '';
+    var text = pageText();
     var cwid = queryParam('cwid') || state.currentCwid;
     var exams = read(EXAM_KEY, {});
     var examState = exams[cwid] || { attempt: 0, submitted: {} };
@@ -395,17 +466,31 @@
     if (submit) setTimeout(function () { submit.click(); }, 1200);
   }
 
+  function findCaseAction() {
+    var allow = /^(查看病例|开始学习|开始|继续学习|继续|下一步|下一页|进入|确认|提交|完成学习|完成)$/;
+    var deny = /返回|退出|关闭|取消|上一页|上一步|暂停|重置|分享|收藏/;
+    var candidates = findSemanticActions(allow, deny, {
+      maxText: 18,
+      score: function (element, text) {
+        var extra = 0;
+        if (/病例|学习|下一|继续|提交|完成/.test(text)) extra += 40;
+        if (/btn|button|view|next|submit|case|start|continue|primary|footer/i.test(classText(element))) extra += 20;
+        return extra;
+      }
+    });
+    return candidates[0] || null;
+  }
+
   function handleCase() {
     if (!state.running) return;
     window.__HY7_TIMER = setInterval(function () {
       if (!state.running) { clearInterval(window.__HY7_TIMER); return; }
-      var candidates = Array.from(document.querySelectorAll('button,a[href],input[type="button"],input[type="submit"],[role="button"]'));
-      var action = candidates.find(function (element) {
-        var text = clean(element.value || element.textContent);
-        return enabled(element) && /^(开始学习|查看病例|下一步|继续|下一页|完成学习|提交)$/.test(text) && !/返回|退出|关闭|取消/.test(text);
-      });
-      if (action) action.click();
-      var text = document.body ? document.body.innerText || '' : '';
+      var action = findCaseAction();
+      if (action) {
+        log('[病例] 点击：' + action.text);
+        humanClick(action.element);
+      }
+      var text = pageText();
       if (/学习完毕|病例完成/.test(text)) { clearInterval(window.__HY7_TIMER); navigate(state.currentCourseUrl || '/pages/study_info_list.aspx'); }
     }, 1300);
   }
@@ -440,6 +525,6 @@
   else setTimeout(init, 0);
 
   if (window.__HY_TEST_MODE__) {
-    window.__HY7_TEST_API__ = { route: route, scanStudy: scanStudy, scanCoursewares: scanCoursewares, parseExam: parseExam, verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, enabled: enabled, normalize: normalize };
+    window.__HY7_TEST_API__ = { route: route, scanStudy: scanStudy, scanCoursewares: scanCoursewares, parseExam: parseExam, verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, enabled: enabled, normalize: normalize, findCaseAction: findCaseAction };
   }
 })();

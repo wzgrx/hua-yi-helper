@@ -62,6 +62,20 @@ test('未知题使用确定性组合且每轮变化', () => {
   assert.notDeepEqual(first, second);
 });
 
+test('互动病例能识别普通 div/span 可点击动作', () => {
+  const { api, window } = boot('<main><div class=\"case-card\"><div>3小时生死竞速：房颤脑梗患者救治全纪实</div><span class=\"view-case\">查看病例</span></div></main>', 'https://hdbl.91huayi.com/?x=1#/home');
+  const action = api.findCaseAction();
+  assert(action, '应识别 span 查看病例');
+  assert.equal(action.text, '查看病例');
+});
+
+test('病例动作过滤返回退出关闭取消类元素', () => {
+  const { api } = boot('<button>返回</button><div role=\"button\">查看病例</div><button>关闭</button>', 'https://hdbl.91huayi.com/?x=1#/home');
+  const action = api.findCaseAction();
+  assert(action, '应找到查看病例');
+  assert.equal(action.text, '查看病例');
+});
+
 test('disabled 与 aria-disabled 均不可用', () => {
   const { api, window } = boot('<button id="a">A</button><button id="b" disabled>B</button><button id="c" aria-disabled="true">C</button>');
   assert.equal(api.enabled(window.document.getElementById('a')), true);
