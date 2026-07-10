@@ -35,12 +35,12 @@ console.log('\n\u{1F4DC} 油猴脚本元数据:');
 assert(content.includes('==UserScript=='), 'UserScript头');
 assert(content.includes('@match        *://*.91huayi.com/*'), '@match 91huayi');
 assert(content.includes('@match        *://dcwj.91huayi.com/*'), '@match dcwj');
-assert(content.includes('@version      6.1.0'), '版本号 6.1.0');
+assert(content.includes('@version      6.1.1'), '版本号 6.1.1');
 assert(content.includes('@run-at       document-start'), 'document-start');
 assert(content.includes('@noframes'), '只在顶层页面运行');
 assert(!content.includes('new MutationObserver'), 'document-start 不修改站点DOM完整性');
 assert(content.includes('GM_getValue'), 'GM授权');
-assert(content.includes('@exclude      *://*.91huayi.com/course_ware/course_ware_polyv.aspx*'), '播放器页面隔离');
+assert(content.includes('原生播放器桥接'), '播放器只读桥接');
 
 // 3. 核心模块
 console.log('\n\u{1F9F0} 核心模块:');

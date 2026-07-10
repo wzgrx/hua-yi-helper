@@ -1,15 +1,13 @@
 // ==UserScript==
 // @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      6.1.0
+// @version      6.1.1
 // @description  2026 华医网全流程学习自动化：登录、学分规划、课程学习、考试、断点恢复与诊断
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
 // @match        *://*.91huayi.com/*
 // @match        *://dcwj.91huayi.com/*
 // @match        *://hdbl.91huayi.com/*
-// @exclude      *://*.91huayi.com/course_ware/course_ware_polyv.aspx*
-// @exclude      *://*.91huayi.com/course_ware/course_ware_cc.aspx*
 // @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -18,8 +16,8 @@
 // @grant        GM_addStyle
 // @grant        GM_info
 // @run-at       document-start
-// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.1.0
-// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.1.0
+// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.1.1
+// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.1.1
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
 // ==/UserScript==
 /*!
@@ -59,9 +57,9 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "6.1.0";
+var HY_VERSION = "6.1.1";
 var HY_UPDATE_DATE = "2026.7.10";
-var HY_UPDATE_LOG = "v6.1.0 真实流程重构：待考试课件直达考试、修复面板误提交、顶层页面隔离、精确题库与状态显示";
+var HY_UPDATE_LOG = "v6.1.1 原生播放器桥接：播放页不创建UI、不操作媒体，只读取网站完成状态并进入考试";
 var HY_HISTORY = [
   "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
   "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",
@@ -1428,184 +1426,38 @@ var SmartEngine = {
     window.__HY_caseTimer = caseTimer;
   },
   
-  // 处理视频页 (course_ware_polyv.aspx)
+  // 原生播放器桥接：不播放、不静音、不读取或写入媒体时间，不创建UI。
+  // 只观察网站自己给出的考试入口状态，符合条件后使用真实 cwid 导航。
   handleVideo: function() {
-    log('[引擎] 视频页加载, 启动播放器...');
-    this.updateUI('video');
-    cleanupRestrictions();
     this._running = true;
-    
     var self = this;
-    var checkCount = 0;
-    // 允许长课程持续运行；仅以连续无进展判定故障，不按固定 10 分钟误杀。
-    var maxChecks = 21600; // 6 hours
-    var videoStarted = false;
-    var videoAlreadyCompleted = false; // v3.8.1: shared flag for both setTimeout and checkTimer
-    var lastVideoTime = -1;
-    var stalledChecks = 0;
-    var recoveryKey = 'HY_VideoRecovery:' + (URL.getCWID() || URL.full.substring(0, 120));
-    
-    // 严格按网站正常流程顺序播放，只信任视频真实 ended 状态或网站启用的考试入口。
-    setTimeout(function() {
-      try {
-        var videos = document.querySelectorAll('video');
-        var jrksCheck = document.getElementById('jrks');
-        if (jrksCheck && isElementEnabled(jrksCheck)) {
-          videoAlreadyCompleted = true;
-          log('[引擎] 网站已启用考试入口，无需重复播放');
-          return;
-        }
-
-        for (var v = 0; v < videos.length; v++) {
-          try { videos[v].muted = true; videos[v].volume = 0; } catch(e) {}
-        }
-        if (videos.length > 0 && videos[0].paused) {
-          var p = videos[0].play();
-          if (p && p.then) {
-            p.then(function() { log('[引擎] 播放已开始'); }).catch(function(e) {});
-          }
-        }
-        log('[引擎] 视频正常顺序播放中（1×）');
-      } catch(e) {
-        log('[引擎] 播放启动错误: ' + e.message);
+    var cwid = URL.getCWID();
+    var checks = 0;
+    var timer = setInterval(function() {
+      if (!self._running || Store.g(CONFIG.keys.paused, false)) {
+        clearInterval(timer);
+        return;
       }
-    }, 1000);
-    
-    var checkTimer = setInterval(function() {
-      if (!self._running) { clearInterval(checkTimer); return; }
-      checkCount++;
-      try {
-        // 立即检查是否可进入考试(视频可能已完成)
-        var jrksBtn = document.getElementById('jrks');
-        if (jrksBtn && isElementEnabled(jrksBtn)) {
-          log('[引擎] 进入考试按钮已启用, 进入考试');
-          clearInterval(checkTimer);
-          var rawHref = jrksBtn.getAttribute('href') || '';
-          if (rawHref && rawHref !== '#' && !rawHref.startsWith('javascript') && !rawHref.startsWith('#')) {
-            safeNavigate(rawHref);
-          } else {
-            try { jrksBtn.click(); } catch(e) {}
-          }
-          return;
-        }
-
-        killPopups();
-        
-          var video = document.querySelector('video');
-          if (video) {
-            try { video.muted = true; video.volume = 0; } catch(e) {}
-
-            if (video.currentTime > lastVideoTime + 0.2) {
-              lastVideoTime = video.currentTime;
-              stalledChecks = 0;
-              Store.d(recoveryKey);
-            } else if (!video.ended && !videoAlreadyCompleted) {
-              stalledChecks++;
-            }
-          
-          // v3.8.0: 检测已完成视频 (ban_history_time=on 导致视频重置到0)
-          // 如果jrks按钮存在但disabled, 且视频在开头, 需要播放视频
-          // 但如果视频duration很短(<60秒)可能是已完成的标志
-          
-          // 检查视频是否已经结束
-          if (video.ended || (video.duration > 0 && video.currentTime >= video.duration - 3)) {
-            log('[引擎] 检测到视频已完成, 等待考试按钮启用');
-            // 不播放, 等待jrks启用
-            if (checkCount % 10 === 0) {
-              log('[引擎] 等待考试按钮启用... (视频已结束)');
-            }
-          } else if (!videoAlreadyCompleted) {
-            // v3.8.1: Don't play if video was already completed (localStorage check)
-            // ban_history_time=on resets video to 0:00, but we know it was watched
-            if (!videoStarted && !video.paused) { videoStarted = true; log('[引擎] 视频正在播放'); }
-            if (video.paused && !video.ended && checkCount % 3 === 0) {
-              try { var p = video.play(); if(p&&p.then) p.catch(function(){}); } catch(e) {}
-            }
-          } else if (checkCount % 10 === 0) {
-            log('[引擎] 等待网站确认视频完成...');
-          }
-
-          var progress = video.duration > 0 ? (video.currentTime / video.duration) : 0;
-          if (checkCount % 30 === 0) {
-            var remaining = video.duration > 0 ? Math.round(video.duration - video.currentTime) : 0;
-            log('[引擎] 视频进度 ' + Math.round(progress * 100) + '% (剩余' + remaining + '秒)');
-          }
-          if (stalledChecks === 120) {
-            log('[引擎] 视频连续 2 分钟无进展，尝试恢复播放器');
-            try { if (window.player && typeof window.player.j2s_resumeVideo === 'function') window.player.j2s_resumeVideo(); } catch(e) {}
-            try { if (window.cc_js_Player && typeof window.cc_js_Player.play === 'function') window.cc_js_Player.play(); } catch(e) {}
-            try { var rp = video.play(); if (rp && rp.catch) rp.catch(function(){}); } catch(e) {}
-          }
-          if (stalledChecks >= 300) {
-            clearInterval(checkTimer);
-            var recoveryCount = Store.g(recoveryKey, 0) + 1;
-            Store.s(recoveryKey, recoveryCount);
-            if (recoveryCount <= 3) {
-              log('[引擎] 视频连续 5 分钟无进展，重新加载页面恢复 (' + recoveryCount + '/3)');
-              location.reload();
-            } else {
-              log('[引擎] 视频多次恢复失败，返回学习记录核验，任务保持未完成');
-              Store.d(recoveryKey);
-              safeNavigate('/pages/study_info_list.aspx');
-            }
-            return;
-          }
-          if (progress > 0.95 || (video.duration > 0 && video.currentTime >= video.duration - 5)) {
-            var jrksFinal = document.getElementById('jrks');
-            if (jrksFinal && isElementEnabled(jrksFinal)) {
-              clearInterval(checkTimer);
-              log('[引擎] 视频播放完成! 进入考试');
-              self._running = false;
-              var finalHref = jrksFinal.getAttribute('href') || '';
-              if (jrksFinal.tagName === 'A' && finalHref && finalHref !== '#' && !finalHref.startsWith('javascript') && !finalHref.startsWith('#')) {
-                safeNavigate(finalHref);
-              } else {
-                try { jrksFinal.click(); } catch(e) {}
-              }
-              return;
-            } else if (jrksFinal && !isElementEnabled(jrksFinal)) {
-              if (checkCount % 10 === 0) {
-                log('[引擎] 视频已完成, 等待考试按钮启用...');
-              }
-              // Keep timer running, wait for button to enable
-            } else {
-              clearInterval(checkTimer);
-              log('[引擎] 视频播放完成, 返回课程列表');
-              self._running = false;
-              safeNavigate('/pages/study_info_list.aspx');
-              return;
-            }
-          }
-        } else {
-          var jrksNoVideo = document.getElementById('jrks');
-          if (jrksNoVideo && isElementEnabled(jrksNoVideo)) {
-            clearInterval(checkTimer);
-            log('[引擎] 无视频元素, 进入考试');
-            self._running = false;
-            var noVideoHref = jrksNoVideo.getAttribute('href') || '';
-            if (jrksNoVideo.tagName === 'A' && noVideoHref && noVideoHref !== '#' && !noVideoHref.startsWith('javascript') && !noVideoHref.startsWith('#')) {
-              safeNavigate(noVideoHref);
-            } else {
-              try { jrksNoVideo.click(); } catch(e) {}
-            }
-            return;
-          }
-          // Never infer completion from a global "已完成" substring. The
-          // player page, hidden widgets and even this helper's own panel can
-          // contain that phrase while the video is at 0:00. Completion is
-          // accepted only from video.ended/currentTime or an enabled #jrks.
-        }
-      } catch(e) {
-        log('[引擎] 视频检测错误: ' + e.message);
-      }
-      if (checkCount > maxChecks) {
-        clearInterval(checkTimer);
-        log('[引擎] 视频检测超时, 返回课程列表');
+      checks++;
+      var pageText = document.body ? (document.body.innerText || '') : '';
+      if (/系统检测到此浏览器安装了异常插件/.test(pageText)) {
+        clearInterval(timer);
         self._running = false;
-        safeNavigate('/pages/study_info_list.aspx');
+        Store.s(CONFIG.keys.paused, true);
+        return;
+      }
+      var examEntry = document.getElementById('jrks');
+      if (cwid && examEntry && isElementEnabled(examEntry)) {
+        clearInterval(timer);
+        safeNavigate('/pages/exam.aspx?cwid=' + encodeURIComponent(cwid));
+        return;
+      }
+      if (checks >= 43200) { // 最长观察12小时
+        clearInterval(timer);
+        self._running = false;
       }
     }, 1000);
-    window.__HY_videoCheck = checkTimer;
+    window.__HY_videoCheck = timer;
   },
   // 处理考试结果页
   // 处理考试页 (exam.aspx)
@@ -2962,6 +2814,12 @@ function mainRouter() {
     LoginController.handle();
     return;
   }
+
+  // 播放页使用无UI、只读桥接，避免面板样式、按钮和媒体操作干扰原生播放器。
+  if (URL.isVideo) {
+    if (!Store.g(CONFIG.keys.paused, false)) SmartEngine.handleVideo();
+    return;
+  }
   
   // 创建UI
   createControlPanel();
@@ -2983,11 +2841,6 @@ function mainRouter() {
       // 问卷页 - 自动处理
       log('[路由] 检测到问卷页');
       SmartEngine.handleSurvey();
-    }
-    else if (URL.isVideo) {
-      // 视频页 - 等待播放
-      log('[路由] 视频页');
-      SmartEngine.handleVideo();
     }
     else if (URL.isExam) {
       // 考试页 - 答题

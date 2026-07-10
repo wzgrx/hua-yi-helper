@@ -37,6 +37,10 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const userscript = fs.readFileSync(path.join(sourceRoot, 'tampermonkey', 'hua-yi-helper.user.js'), 'utf8');
 assert(/btn\.type\s*=\s*["']button["']/.test(userscript), '控制面板按钮必须是 button，禁止误提交考试表单');
 assert(/exam\.aspx\?cwid=/.test(userscript), '待考试课件必须能够直接进入真实考试地址');
+const videoBridgeStart = userscript.indexOf('handleVideo: function()');
+const videoBridgeEnd = userscript.indexOf('handleExam: function()', videoBridgeStart);
+const videoBridge = videoBridgeStart >= 0 && videoBridgeEnd > videoBridgeStart ? userscript.slice(videoBridgeStart, videoBridgeEnd) : '';
+assert(videoBridge && !/querySelector\(['"]video|\.play\(|\.muted|\.volume/.test(videoBridge), '播放器桥接不得控制媒体元素');
 assert(!/window\.open\s*=/.test(userscript), '不得覆盖网站 window.open，避免触发异常插件检测');
 assert(!/removeAttribute\(['"]on(?:contextmenu|copy)['"]\)/.test(userscript), '不得删除网站事件处理器，避免触发完整性检测');
 assert(!userscript.includes("log('[引擎] 课程已完成')"), '视频页不得用全页“已完成”文本判断播放完成');
