@@ -29,6 +29,7 @@ assert(!allSource.includes('_obs.observe(document.documentElement'), 'document-s
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const userscript = fs.readFileSync(path.join(sourceRoot, 'tampermonkey', 'hua-yi-helper.user.js'), 'utf8');
+assert(/if \(URL\.isStudyList\) \{\s*this\.handleStudyList\(\);\s*return;/.test(userscript), '运行状态下学习记录页必须专门处理，禁止落入未知页面并跳课');
 const version = userscript.match(/@version\s+(\S+)/);
 assert(version, '油猴脚本缺少版本号');
 assert.equal(version[1], pkg.version, 'package.json 与油猴脚本版本必须一致');

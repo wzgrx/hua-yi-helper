@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      6.0.2
+// @version      6.0.3
 // @description  2026 华医网全流程学习自动化：登录、学分规划、课程学习、考试、断点恢复与诊断
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -118,9 +118,9 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "6.0.2";
+var HY_VERSION = "6.0.3";
 var HY_UPDATE_DATE = "2026.7.10";
-var HY_UPDATE_LOG = "v6.0.2 Edge 启动修复：兼容 document-start 阶段尚未创建 html 元素，避免脚本整体中止";
+var HY_UPDATE_LOG = "v6.0.3 学习记录续跑修复：不再把记录页判为未知页面或错误跳过课程，计划结束后自动重新核验学分";
 var HY_HISTORY = [
   "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
   "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",
@@ -1222,6 +1222,14 @@ var SmartEngine = {
       }
     }
     
+    // The study record is a verification/staging page, not a course task.
+    // Older builds fell through to "unknown page" and called nextTask(),
+    // silently skipping one course every time this page was visited.
+    if (URL.isStudyList) {
+      this.handleStudyList();
+      return;
+    }
+
     var task = this.getCurrentTask();
     if (!task) {
       log('[引擎] 所有任务已完成!');
@@ -1255,6 +1263,23 @@ var SmartEngine = {
       log('[引擎] 未知页面: ' + URL.last);
       this.nextTask();
     }
+  },
+
+  // Resume an existing task from the authoritative study record, or rebuild
+  // the plan after the previous batch has really finished.
+  handleStudyList: function() {
+    var task = this.getCurrentTask();
+    if (task && task.url) {
+      log('[引擎] 学习记录核验完成，继续当前任务: ' + task.name);
+      this.navigateToTask(task);
+      return;
+    }
+
+    log('[引擎] 当前计划已结束，重新核验学分并生成后续计划');
+    Store.d(HY_PLAN_KEY);
+    Store.s(HY_PLAN_IDX, 0);
+    this._running = false;
+    this.start();
   },
   
   // 处理课程列表页 (Vue SPA)
