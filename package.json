@@ -1,14 +1,9 @@
 {
   "name": "hua-yi-helper",
-  "version": "6.1.1",
-  "description": "华医网学习助手 v6 - 可恢复的全流程油猴自动化与 Edge 端到端验证",
-  "main": "src/hermes/index.js",
+  "version": "7.0.0",
+  "description": "华医网学习助手 v7 - 基于真实页面重写的可恢复学习流程",
   "scripts": {
-    "test": "node tests/run-all.js && node tests/dom-integration.js && node tests/source-quality.js",
-    "start": "node src/hermes/index.js",
-    "brush": "node src/hermes/index.js --mode brush",
-    "full": "node src/hermes/index.js --mode full",
-    "plan": "node src/hermes/index.js --mode plan"
+    "test": "node tests/run-all.js && node tests/dom-integration.js && node tests/source-quality.js"
   },
   "keywords": [
     "huayi",
@@ -19,9 +14,7 @@
   ],
   "author": "wzgrx",
   "license": "AGPL-3.0",
-  "dependencies": {
-    "puppeteer-core": "^22.0.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "jsdom": "^26.1.0"
   },
