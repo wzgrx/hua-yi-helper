@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      7.0.1
+// @version      7.0.2
 // @description  基于2026真实页面重写的华医网学习流程助手：课程、原生播放、考试、证书与断点恢复
 // @author       wzgrx
 // @license      AGPL-3.0
@@ -13,15 +13,15 @@
 // @grant        GM_info
 // @run-at       document-start
 // @noframes
-// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.1
-// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.1
+// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.2
+// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.2
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  var VERSION = '7.0.1';
+  var VERSION = '7.0.2';
   var STATE_KEY = 'HY7_STATE';
   var ANSWER_KEY = 'HY7_ANSWERS';
   var EXAM_KEY = 'HY7_EXAMS';
@@ -102,19 +102,43 @@
     ].join(',');
     return uniqueElements(Array.from(document.querySelectorAll(selectors))).map(function (element) {
       var text = actionText(element);
+      var patternMatched = !pattern || pattern.test(text);
       var rect = elementRect(element);
       var score = 0;
-      if (pattern && pattern.test(text)) score += 100;
+      if (patternMatched && pattern) score += 100;
       if (looksClickable(element)) score += 15;
       if (rect.w > 20 && rect.h > 14) score += 8;
       if (denyPattern && denyPattern.test(text)) score -= 200;
       if (!enabled(element)) score -= 200;
       if (!text || text.length > (options.maxText || 22)) score -= 30;
+      if (!patternMatched && !options.loose) score -= 200;
       if (options.score) score += options.score(element, text, rect) || 0;
       return { element: element, text: text, score: score, rect: rect };
     }).filter(function (item) {
       return item.score > 0;
     }).sort(function (a, b) { return b.score - a.score; });
+  }
+  function parseClock(value) {
+    var parts = String(value || '').split(':').map(function (part) { return Number(part); });
+    if (parts.some(function (part) { return !isFinite(part); })) return 0;
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return 0;
+  }
+  function caseVideoStatus() {
+    var text = pageText();
+    var match = text.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*\/\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
+    if (!match) return { active: false, done: false, current: 0, duration: 0, remaining: 0 };
+    var current = parseClock(match[1]);
+    var duration = parseClock(match[2]);
+    var remaining = Math.max(0, duration - current);
+    return {
+      active: duration > 0,
+      done: duration > 0 && (current >= duration - 2 || current / duration >= 0.985),
+      current: current,
+      duration: duration,
+      remaining: remaining
+    };
   }
   function actionText(element) {
     if (!element) return '';
@@ -467,6 +491,16 @@
   }
 
   function findCaseAction() {
+    var video = caseVideoStatus();
+    if (video.active && !video.done) {
+      var play = findSemanticActions(/^(播放|继续播放|开始播放)$/, /倍速|快进|全屏|音量|清晰|设置/, {
+        maxText: 12,
+        score: function (element) {
+          return /play|start|pause|pv-icon-btn-play|xgplayer-start/i.test(classText(element)) ? 35 : 0;
+        }
+      })[0];
+      return play || null;
+    }
     var allow = /^(查看病例|开始学习|开始|继续学习|继续|下一步|下一页|进入|确认|提交|完成学习|完成)$/;
     var deny = /返回|退出|关闭|取消|上一页|上一步|暂停|重置|分享|收藏/;
     var candidates = findSemanticActions(allow, deny, {
@@ -489,6 +523,9 @@
       if (action) {
         log('[病例] 点击：' + action.text);
         humanClick(action.element);
+      } else {
+        var video = caseVideoStatus();
+        if (video.active && !video.done) setState({ phase: 'case', message: '病例视频观看中，剩余约 ' + Math.ceil(video.remaining / 60) + ' 分钟' });
       }
       var text = pageText();
       if (/学习完毕|病例完成/.test(text)) { clearInterval(window.__HY7_TIMER); navigate(state.currentCourseUrl || '/pages/study_info_list.aspx'); }
@@ -525,6 +562,6 @@
   else setTimeout(init, 0);
 
   if (window.__HY_TEST_MODE__) {
-    window.__HY7_TEST_API__ = { route: route, scanStudy: scanStudy, scanCoursewares: scanCoursewares, parseExam: parseExam, verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, enabled: enabled, normalize: normalize, findCaseAction: findCaseAction };
+    window.__HY7_TEST_API__ = { route: route, scanStudy: scanStudy, scanCoursewares: scanCoursewares, parseExam: parseExam, verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, enabled: enabled, normalize: normalize, findCaseAction: findCaseAction, caseVideoStatus: caseVideoStatus };
   }
 })();

@@ -76,6 +76,24 @@ test('病例动作过滤返回退出关闭取消类元素', () => {
   assert.equal(action.text, '查看病例');
 });
 
+test('互动病例内嵌视频未结束时不允许点击下一页', () => {
+  const { api } = boot('<div class=\"dc-view-title\">重点知识</div><div>00:00 / 04:53</div><div class=\"problem-page-right click-active\">下一页</div>', 'https://hdbl.91huayi.com/?x=1#/problem/view');
+  const video = api.caseVideoStatus();
+  assert.equal(video.active, true);
+  assert.equal(video.done, false);
+  assert.equal(api.findCaseAction(), null);
+});
+
+test('互动病例内嵌视频结束后允许点击下一页', () => {
+  const { api } = boot('<div class=\"dc-view-title\">重点知识</div><div>04:53 / 04:53</div><div class=\"problem-page-right click-active\">下一页</div>', 'https://hdbl.91huayi.com/?x=1#/problem/view');
+  const video = api.caseVideoStatus();
+  assert.equal(video.active, true);
+  assert.equal(video.done, true);
+  const action = api.findCaseAction();
+  assert(action);
+  assert.equal(action.text, '下一页');
+});
+
 test('disabled 与 aria-disabled 均不可用', () => {
   const { api, window } = boot('<button id="a">A</button><button id="b" disabled>B</button><button id="c" aria-disabled="true">C</button>');
   assert.equal(api.enabled(window.document.getElementById('a')), true);
