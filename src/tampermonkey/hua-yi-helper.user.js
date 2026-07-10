@@ -1,25 +1,24 @@
 // ==UserScript==
 // @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      6.0.5
+// @version      6.0.6
 // @description  2026 华医网全流程学习自动化：登录、学分规划、课程学习、考试、断点恢复与诊断
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
 // @match        *://*.91huayi.com/*
 // @match        *://dcwj.91huayi.com/*
 // @match        *://hdbl.91huayi.com/*
+// @exclude      *://*.91huayi.com/course_ware/course_ware_polyv.aspx*
+// @exclude      *://*.91huayi.com/course_ware/course_ware_cc.aspx*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
 // @grant        GM_listValues
 // @grant        GM_addStyle
 // @grant        GM_info
-// @connect      cdn.jsdelivr.net
-// @connect      tessdata.projectnaptha.com
-// @require      https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js
 // @run-at       document-start
-// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.5
-// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.5
+// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.6
+// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.6
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
 // ==/UserScript==
 /*!
@@ -59,9 +58,9 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "6.0.5";
+var HY_VERSION = "6.0.6";
 var HY_UPDATE_DATE = "2026.7.10";
-var HY_UPDATE_LOG = "v6.0.5 严格按网站要求以1×正常顺序播放，并逐项完成播放器互动";
+var HY_UPDATE_LOG = "v6.0.6 播放器隔离：脚本不再注入受完整性检测保护的播放页，由网站原生播放器正常顺序播放";
 var HY_HISTORY = [
   "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
   "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",
