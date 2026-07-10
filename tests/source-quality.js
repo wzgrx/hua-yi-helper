@@ -25,6 +25,7 @@ assert(!allSource.includes(':contains('), '不得使用浏览器不支持的 CSS
 assert(!allSource.includes('ghp_'), '源码不得包含 GitHub token');
 assert(!allSource.includes('17795547652'), '源码不得硬编码用户账号');
 assert(!allSource.includes('HYW+zjx+2212'), '源码不得硬编码用户密码');
+assert(!allSource.includes('_obs.observe(document.documentElement'), 'document-start 不得观察可能为 null 的 documentElement');
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const userscript = fs.readFileSync(path.join(sourceRoot, 'tampermonkey', 'hua-yi-helper.user.js'), 'utf8');
