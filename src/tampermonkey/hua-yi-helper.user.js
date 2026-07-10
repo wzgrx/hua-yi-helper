@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      6.0.3
+// @version      6.0.4
 // @description  2026 华医网全流程学习自动化：登录、学分规划、课程学习、考试、断点恢复与诊断
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -18,8 +18,8 @@
 // @connect      tessdata.projectnaptha.com
 // @require      https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js
 // @run-at       document-start
-// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js
-// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js
+// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.4
+// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.4
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
 // ==/UserScript==
 /*!
@@ -44,71 +44,12 @@
 
 
 // ═══════════════════════════════════════════════════════════════
-// 零号拦截器 (页面加载前执行)
+// 零号初始化器 (页面加载前执行)
 // ═══════════════════════════════════════════════════════════════
 (function() {
-  try {
-    window.__HY_rawConsole = {
-      log: console.log.bind(console),
-      warn: console.warn.bind(console),
-      error: console.error.bind(console),
-      info: console.info.bind(console)
-    };
-  } catch(e) {}
-  function _safeLog() {
-    try { window.__HY_rawConsole.log.apply(null, arguments); } catch(e2) {}
-  }
-  window.__HY_log = _safeLog;
-  // v3.5.0: Global window.open interception - prevent hundreds of tabs
-  try {
-    var _origOpen = window.open;
-    window.open = function(url, name, specs) {
-      if (!url || url === 'about:blank' || url.indexOf('javascript:') === 0) return null;
-      // Redirect all window.open calls to location.href (same tab navigation)
-      try {
-        if (url.indexOf('http') === 0) {
-          window.location.href = url;
-        } else if (url.indexOf('/') === 0) {
-          window.location.href = window.location.origin + url;
-        } else {
-          window.location.href = url;
-        }
-      } catch(e) {}
-      return null;
-    };
-    // Also intercept document.execCommand('window.open') and target=_blank links
-    document.addEventListener('click', function(e) {
-      var el = e.target;
-      if (!el || !el.closest) return;
-      var link = el.closest('a[target="_blank"]');
-      if (link && link.href && link.href.indexOf('javascript:') === -1) {
-        e.preventDefault();
-        e.stopPropagation();
-        try { window.location.href = link.href; } catch(e2) {}
-      }
-    }, true);
-  } catch(e) {}
-  if (typeof MutationObserver !== 'undefined') {
-    var _obs = new MutationObserver(function(muts, obs) {
-      if (document.body) {
-        obs.disconnect();
-        try {
-          var body = document.body;
-          body.removeAttribute('oncontextmenu');
-          body.removeAttribute('oncopy');
-          body.oncontextmenu = null;
-          body.oncopy = null;
-          document.oncontextmenu = null;
-          document.onselectstart = null;
-        } catch(e) {}
-      }
-    });
-    // At @run-at document-start Edge can execute before <html> exists.
-    // Observing a null documentElement throws synchronously and used to abort the
-    // whole userscript, leaving no panel and making every feature appear dead.
-    // Document itself is always available and receives the same subtree changes.
-    _obs.observe(document, { childList: true, subtree: true });
-  }
+  // Do not monkey-patch window.open, console, document handlers or DOM APIs.
+  // The current player validates page integrity and reports such mutations as
+  // an "异常插件". Navigation is handled explicitly by safeNavigate instead.
 })();
 
 // ═══════════════════════════════════════════════════════════════
@@ -118,9 +59,9 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "6.0.3";
+var HY_VERSION = "6.0.4";
 var HY_UPDATE_DATE = "2026.7.10";
-var HY_UPDATE_LOG = "v6.0.3 学习记录续跑修复：不再把记录页判为未知页面或错误跳过课程，计划结束后自动重新核验学分";
+var HY_UPDATE_LOG = "v6.0.4 视频完成判定修复：禁止用页面任意“已完成”文本误判视频结束，避免播放1秒后回跳";
 var HY_HISTORY = [
   "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
   "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",
@@ -330,43 +271,14 @@ function safeClick(el) {
   }
 }
 
-// 修复btn67/window.open链接 - 截获新标签页打开
+// 保留兼容入口，但绝不改写站点 onclick/window.open。
 function fixWindowOpenLinks() {
-  try {
-    // 重写所有onclick包含window.open的链接/按钮
-    var allEls = document.querySelectorAll('[onclick*=\"window.open\"]');
-    for (var fi = 0; fi < allEls.length; fi++) {
-      var el = allEls[fi];
-      var oc = el.getAttribute('onclick') || '';
-      var m = oc.match(/window\.open\s*\(\s*['"]([^'"]+)['"]/);
-      if (m && m[1]) {
-        var url = m[1];
-        if (url.indexOf('http') < 0) {
-          if (url.indexOf('/') === 0) url = window.location.origin + url;
-          else url = window.location.origin + '/pages/' + url.replace('../pages/', '');
-        }
-        // 重写onclick为safeNavigate
-        el.setAttribute('onclick', 'location.href=\"' + url + '\"');
-        log('[安全] 重写window.open: ' + url.substring(0, 80));
-      }
-    }
-  } catch(e) {
-    log('[安全] fixWindowOpenLinks错误: ' + e.message);
-  }
+  // Scanners parse target URLs without mutating the site's DOM or handlers.
 }
 
-// 页面限制清理
+// 页面完整性保护：不移除或替换站点事件处理器。
 function cleanupRestrictions() {
-  try {
-    var body = document.body;
-    if (!body) return;
-    body.removeAttribute('oncontextmenu');
-    body.removeAttribute('oncopy');
-    body.oncontextmenu = null;
-    body.oncopy = null;
-    document.oncontextmenu = null;
-    document.onselectstart = null;
-  } catch(e) {}
+  // No-op by design; mutations are detected as an abnormal plugin.
 }
 
 // 弹窗杀手 - 处理疲劳/温馨提示/防刷题弹窗
@@ -1666,14 +1578,10 @@ var SmartEngine = {
             }
             return;
           }
-          var pageText = document.body ? (document.body.textContent || '') : '';
-          if (pageText.indexOf('已完成') >= 0) {
-            clearInterval(checkTimer);
-            log('[引擎] 课程已完成');
-            self._running = false;
-            safeNavigate('/pages/study_info_list.aspx');
-            return;
-          }
+          // Never infer completion from a global "已完成" substring. The
+          // player page, hidden widgets and even this helper's own panel can
+          // contain that phrase while the video is at 0:00. Completion is
+          // accepted only from video.ended/currentTime or an enabled #jrks.
         }
       } catch(e) {
         log('[引擎] 视频检测错误: ' + e.message);
@@ -3208,19 +3116,6 @@ function init() {
       console.log('[HYv3] [错误] ' + e.message);
     });
   } catch(e) {}
-  
-  // 恢复console
-  try {
-    if (window.__HY_rawConsole) {
-      Object.defineProperty(console, 'log', {
-        value: window.__HY_rawConsole.log,
-        writable: true, configurable: true
-      });
-    }
-  } catch(e) {}
-  
-  // 清理限制
-  cleanupRestrictions();
   
   // 启动主路由
   mainRouter();

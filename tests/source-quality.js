@@ -29,6 +29,9 @@ assert(!allSource.includes('_obs.observe(document.documentElement'), 'document-s
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const userscript = fs.readFileSync(path.join(sourceRoot, 'tampermonkey', 'hua-yi-helper.user.js'), 'utf8');
+assert(!/window\.open\s*=/.test(userscript), '不得覆盖网站 window.open，避免触发异常插件检测');
+assert(!/removeAttribute\(['"]on(?:contextmenu|copy)['"]\)/.test(userscript), '不得删除网站事件处理器，避免触发完整性检测');
+assert(!userscript.includes("log('[引擎] 课程已完成')"), '视频页不得用全页“已完成”文本判断播放完成');
 assert(/if \(URL\.isStudyList\) \{\s*this\.handleStudyList\(\);\s*return;/.test(userscript), '运行状态下学习记录页必须专门处理，禁止落入未知页面并跳课');
 const version = userscript.match(/@version\s+(\S+)/);
 assert(version, '油猴脚本缺少版本号');

@@ -35,9 +35,9 @@ console.log('\n\u{1F4DC} 油猴脚本元数据:');
 assert(content.includes('==UserScript=='), 'UserScript头');
 assert(content.includes('@match        *://*.91huayi.com/*'), '@match 91huayi');
 assert(content.includes('@match        *://dcwj.91huayi.com/*'), '@match dcwj');
-assert(content.includes('@version      6.0.3'), '版本号 6.0.3');
+assert(content.includes('@version      6.0.4'), '版本号 6.0.4');
 assert(content.includes('@run-at       document-start'), 'document-start');
-assert(content.includes('_obs.observe(document,'), 'document-start 阶段不依赖尚未创建的 documentElement');
+assert(!content.includes('new MutationObserver'), 'document-start 不修改站点DOM完整性');
 assert(content.includes('GM_getValue'), 'GM授权');
 assert(content.includes('tesseract.js@5.1.1'), '本地图形验证码 OCR');
 
@@ -103,7 +103,7 @@ assert(content.includes('URL.isExam'), '考试检测');
 // 10. 页面兼容
 console.log('\n\u{1F6E1} 页面兼容:');
 assert(!content.includes('window.blockAbnormalPlugin = function'), '不覆盖网站完整性检测');
-assert(content.includes('MutationObserver'), 'MutationObserver');
+assert(!content.includes('new MutationObserver'), '不注入DOM监听器');
 
 // 总结
 console.log(`\n========================================`);
