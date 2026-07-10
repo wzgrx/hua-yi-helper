@@ -1,7 +1,7 @@
 {
   "name": "hua-yi-helper",
-  "version": "7.0.2",
-  "description": "华医网学习助手 v7.0.2 - 基于真实页面重写的可恢复学习流程",
+  "version": "7.0.3",
+  "description": "华医网学习助手 v7.0.3 - 基于真实页面重写的可恢复学习流程",
   "scripts": {
     "test": "node tests/run-all.js && node tests/dom-integration.js && node tests/source-quality.js"
   },

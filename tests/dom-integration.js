@@ -94,6 +94,13 @@ test('互动病例内嵌视频结束后允许点击下一页', () => {
   assert.equal(action.text, '下一页');
 });
 
+test('新脚本启动时清理旧 HY7 面板', () => {
+  const { window } = boot('<div id=\"HY7_HOST\"></div><main>内容</main>', 'https://hdbl.91huayi.com/?x=1#/home');
+  const hosts = window.document.querySelectorAll('#HY7_HOST');
+  assert.equal(hosts.length, 1);
+  assert.match(hosts[0].shadowRoot.textContent, /华医助手 v7\.0\./);
+});
+
 test('disabled 与 aria-disabled 均不可用', () => {
   const { api, window } = boot('<button id="a">A</button><button id="b" disabled>B</button><button id="c" aria-disabled="true">C</button>');
   assert.equal(api.enabled(window.document.getElementById('a')), true);

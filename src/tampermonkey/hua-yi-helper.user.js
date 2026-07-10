@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      7.0.2
+// @version      7.0.3
 // @description  基于2026真实页面重写的华医网学习流程助手：课程、原生播放、考试、证书与断点恢复
 // @author       wzgrx
 // @license      AGPL-3.0
@@ -13,15 +13,15 @@
 // @grant        GM_info
 // @run-at       document-start
 // @noframes
-// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.2
-// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.2
+// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.3
+// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.3
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  var VERSION = '7.0.2';
+  var VERSION = '7.0.3';
   var STATE_KEY = 'HY7_STATE';
   var ANSWER_KEY = 'HY7_ANSWERS';
   var EXAM_KEY = 'HY7_EXAMS';
@@ -194,8 +194,18 @@
 
   var hostNode = null;
   var shadow = null;
+  function cleanupLegacyPanels() {
+    Array.from(document.querySelectorAll('#HY7_HOST')).forEach(function (node) {
+      var text = '';
+      try { text = node.shadowRoot ? node.shadowRoot.textContent || '' : node.textContent || ''; } catch (_) {}
+      if (!text || text.indexOf('华医助手 v' + VERSION) < 0) {
+        try { node.remove(); } catch (_) {}
+      }
+    });
+  }
   function createUI() {
     if (route() === 'player' || hostNode || !document.body) return;
+    cleanupLegacyPanels();
     hostNode = document.createElement('div');
     hostNode.id = 'HY7_HOST';
     hostNode.style.cssText = 'all:initial;position:fixed;top:14px;right:14px;z-index:2147483647;';
@@ -563,5 +573,6 @@
 
   if (window.__HY_TEST_MODE__) {
     window.__HY7_TEST_API__ = { route: route, scanStudy: scanStudy, scanCoursewares: scanCoursewares, parseExam: parseExam, verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, enabled: enabled, normalize: normalize, findCaseAction: findCaseAction, caseVideoStatus: caseVideoStatus };
+    init();
   }
 })();
