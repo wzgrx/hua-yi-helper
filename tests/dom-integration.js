@@ -59,6 +59,51 @@ test('学习记录只把已申请计入已获学分', () => {
   assert.equal(result.courses[1].needsExam, true);
 });
 
+test('学习记录按目标年度过滤历史课程', () => {
+  const { api } = boot(`
+    <table><thead><tr><th>项目名称</th><th>年度</th><th>学分</th><th>学习状态</th><th>x</th><th>x</th><th>学习进度</th><th>操作</th></tr></thead><tbody>
+      <tr><td><a href="/pages/course.aspx?cid=old">旧课程</a></td><td>2025</td><td>10学分</td><td>已申请</td><td></td><td></td><td>1/1</td><td></td></tr>
+      <tr><td><a href="/pages/course.aspx?cid=new">本年课程</a></td><td>2026</td><td>2学分</td><td>已申请</td><td></td><td></td><td>1/1</td><td></td></tr>
+    </tbody></table>`, 'https://cme28.91huayi.com/pages/study_info_list.aspx');
+  const result = api.VueCourseScanner.scanCreditsFromASP();
+  assert.equal(result.courses.length, 1);
+  assert.equal(result.courses[0].name, '本年课程');
+  assert.equal(result.total, 2);
+});
+
+test('规划同时满足公需与其他类别且不会伪造课程 URL', () => {
+  const { api } = boot('<main></main>');
+  const analysis = {
+    met: false,
+    publicRemaining: 5,
+    otherRemaining: 4,
+    totalRemaining: 9,
+    courses: [
+      { name: '无入口课程', credit: 9, isPublic: false, completed: false, link: '', actionUrl: '' },
+      { name: '公需课', credit: 5, isPublic: true, completed: false, link: '/pages/course.aspx?cid=pub', progressPct: 0 },
+      { name: '待考试课', credit: 2, isPublic: false, completed: false, link: '/pages/course.aspx?cid=exam', needsExam: true, progressPct: 100 },
+      { name: '普通课', credit: 2, isPublic: false, completed: false, link: '/pages/course.aspx?cid=normal', progressPct: 0 }
+    ]
+  };
+  const plan = api.CreditPlanner.generatePlan(analysis);
+  assert.deepEqual(Array.from(plan.tasks, task => task.name), ['公需课', '待考试课', '普通课']);
+  assert(plan.tasks.every(task => /course\.aspx\?cid=/.test(task.url)));
+  assert.equal(plan.remainingAfterPlan, 0);
+});
+
+test('总分 25 但类别配额不足时不误判达标', () => {
+  const { api } = boot(`
+    <table><thead><tr><th>项目名称</th><th>年度</th><th>学分</th><th>学习状态</th><th>x</th><th>x</th><th>学习进度</th><th>操作</th></tr></thead><tbody>
+      <tr><td><a href="/pages/course.aspx?cid=p">公需课程</a></td><td>2026</td><td>6学分 公需</td><td>已申请</td><td></td><td></td><td>1/1</td><td></td></tr>
+      <tr><td><a href="/pages/course.aspx?cid=o">专业课程</a></td><td>2026</td><td>19学分</td><td>已申请</td><td></td><td></td><td>1/1</td><td></td></tr>
+    </tbody></table>`, 'https://cme28.91huayi.com/pages/study_info_list.aspx');
+  const result = api.CreditPlanner.analyze();
+  assert.equal(result.totalEarned, 25);
+  assert.equal(result.met, false);
+  assert.equal(result.otherRemaining, 1);
+  assert.equal(result.totalRemaining, 1);
+});
+
 test('执行状态跨页面读取与写回 GM 存储', () => {
   const { api, values } = boot('<main></main>', undefined, { HY_Running: true });
   assert.equal(api.SmartEngine._running, true);
@@ -96,6 +141,21 @@ test('题目按选项 name 分组且不会把每个选项当成一题', () => {
   const questions = api.findQuestions();
   assert.equal(questions.length, 2);
   assert.equal(api.extractOptions(questions[0]).length, 2);
+});
+
+test('考试结果只学习结果页明确验证为正确的已提交答案', () => {
+  const { api, values } = boot(`
+    <div class="state_cour_lis"><img src="/images/bar_img.png"><p title="1. 正确题目">正确题目</p></div>
+    <div class="state_cour_lis"><img src="/images/wrong.png"><p title="2. 错误题目">错误题目</p></div>
+  `, 'https://cme28.91huayi.com/pages/exam_result.aspx', {
+    HY_LastSubmittedAnswers: { 正确题目: '正确选项', 错误题目: '错误选项' },
+    HY_rightAnswers: {}
+  });
+  api.doResult();
+  const answers = values.get('HY_rightAnswers');
+  assert.equal(answers['正确题目'], '正确选项');
+  assert.equal(answers['错误题目'], undefined);
+  assert.equal(values.has('HY_LastSubmittedAnswers'), false);
 });
 
 test('disabled、aria-disabled 与 CSS disabled 均不可用', () => {

@@ -569,8 +569,20 @@ var VueCourseScanner = {
     try {
       var thead = document.querySelector('table thead');
       if (!thead) return null;
-      var thCount = thead.querySelectorAll('th').length;
+      var headerCells = Array.from(thead.querySelectorAll('th, td'));
+      var headers = headerCells.map(function(cell) { return (cell.textContent || '').replace(/\s+/g, ' ').trim(); });
+      var thCount = headers.length;
       var isStudyInfo = thCount >= 6;
+      function headerIndex(pattern, fallback) {
+        for (var hi = 0; hi < headers.length; hi++) if (pattern.test(headers[hi])) return hi;
+        return fallback;
+      }
+      var nameIndex = headerIndex(/项目名称|课程名称|项目/, 0);
+      var creditIndex = headerIndex(/学分|分值/, 2);
+      var statusIndex = headerIndex(/学习状态|状态/, 3);
+      var progressIndex = headerIndex(/学习进度|进度/, 6);
+      var actionIndex = headerIndex(/操作/, 7);
+      var yearIndex = headerIndex(/年度|年份/, -1);
       
       var tbody = document.querySelector('table tbody');
       if (!tbody) return null;
@@ -581,21 +593,32 @@ var VueCourseScanner = {
       for (var ri = 0; ri < rows.length; ri++) {
         var cells = rows[ri].querySelectorAll('td');
         if (cells.length < 4) continue;
+
+        var rowText = (rows[ri].textContent || '').replace(/\s+/g, ' ').trim();
+        var yearText = yearIndex >= 0 && cells[yearIndex] ? (cells[yearIndex].textContent || '') : rowText;
+        var yearMatch = yearText.match(/(?:19|20)\d{2}/);
+        var courseYear = yearMatch ? parseInt(yearMatch[0], 10) : null;
+        if (courseYear && courseYear !== CONFIG.targetYear) continue;
         
         // Col 0: 项目名称 (with link)
-        var nameEl = cells[0].querySelector('a');
-        var name = nameEl ? nameEl.textContent.trim() : '';
+        var nameCell = cells[nameIndex] || cells[0];
+        var nameEl = nameCell.querySelector('a');
+        var name = nameEl ? nameEl.textContent.trim() : (nameCell.textContent || '').trim();
         var link = nameEl ? nameEl.href : '';
+        if (!name) continue;
         
         // Col 2: 学分类型
-        var creditText = cells.length >= 3 ? (cells[2].textContent || '').trim() : '';
+        var creditCell = cells[creditIndex] || cells[2] || cells[0];
+        var creditText = (creditCell.textContent || '').trim();
         var cm = creditText.match(/([\d.]+)\s*学分/) || creditText.match(/([\d.]+)分/);
+        if (!cm) cm = rowText.match(/([\d.]+)\s*学分/);
         var credit = cm ? parseFloat(cm[1]) : 0;
-        if (credit === 0) credit = 1;
+        if (!Number.isFinite(credit) || credit <= 0) credit = 1;
         var isPublic = creditText.indexOf('公需') >= 0 || name.indexOf('公需') >= 0;
         
         // Col 3: 学习状态
-        var status = isStudyInfo ? (cells[3].textContent || '').trim() : '未学习';
+        var statusCell = cells[statusIndex] || cells[3];
+        var status = isStudyInfo && statusCell ? (statusCell.textContent || '').replace(/\s+/g, '').trim() : '未学习';
         if (!isStudyInfo && cells.length >= 4) {
           var btn0 = cells[3].querySelector('input[type="button"], button');
           if (btn0) {
@@ -607,23 +630,29 @@ var VueCourseScanner = {
         
         // Col 6: 学习进度 (e.g. "7/7", "0/12", "3/5")
         var progress = '';
-        if (cells.length >= 7) progress = (cells[6].textContent || '').trim();
+        if (cells[progressIndex]) progress = (cells[progressIndex].textContent || '').trim();
+        if (!/\d+\s*\/\s*\d+/.test(progress)) {
+          var rowProgress = rowText.match(/\d+\s*\/\s*\d+/);
+          progress = rowProgress ? rowProgress[0] : '';
+        }
         
         // Col 7: 操作 (button text: "申请证书"/"继续学习" or empty)
         var action = '';
-        if (cells.length >= 8) {
-          var actionBtn = cells[7].querySelector('input[type="button"], button');
+        var actionCell = cells[actionIndex] || cells[cells.length - 1];
+        if (actionCell) {
+          var actionBtn = actionCell.querySelector('input[type="button"], input[type="submit"], button, a');
           if (actionBtn) action = (actionBtn.value || actionBtn.textContent || '').trim();
         }
         
         // Extract action URL from button onclick (e.g. apply_certificate.aspx or course.aspx)
         var actionUrl = '';
-        if (cells.length >= 8) {
-          var actionBtn2 = cells[7].querySelector('input[type="button"], button');
+        if (actionCell) {
+          var actionBtn2 = actionCell.querySelector('input[type="button"], input[type="submit"], button, a');
           if (actionBtn2) {
             var oc = actionBtn2.getAttribute('onclick') || '';
-            var ocMatch = oc.match(/location\.href="([^"]+)"/) || oc.match(/location\.href='([^']+)'/);
-            if (ocMatch) actionUrl = ocMatch[1];
+            var ocMatch = oc.match(/(?:location\.href\s*=|window\.open\s*\()\s*["']([^"']+)["']/);
+            actionUrl = actionBtn2.getAttribute('href') || actionBtn2.getAttribute('data-url') || (ocMatch ? ocMatch[1] : '');
+            if (/^javascript:/i.test(actionUrl)) actionUrl = '';
           }
         }
         
@@ -652,6 +681,7 @@ var VueCourseScanner = {
         
         result.courses.push({
           name: name,
+          year: courseYear,
           credit: credit,
           status: status,
           isPublic: isPublic,
@@ -705,6 +735,7 @@ var CreditPlanner = {
         var pPct = pTotal > 0 ? Math.round(pDone / pTotal * 100) : 0;
         return {
           name: c.name,
+          year: c.year || null,
           link: c.link,
           credit: c.credit,
           status: c.status,
@@ -750,8 +781,9 @@ var CreditPlanner = {
     
     result.publicRemaining = Math.max(0, result.publicTarget - result.publicEarned);
     result.otherRemaining = Math.max(0, result.otherTarget - result.otherEarned);
-    result.totalRemaining = Math.max(0, result.targetTotal - result.totalEarned);
-    result.met = result.totalEarned >= result.targetTotal;
+    result.totalRemaining = result.publicRemaining + result.otherRemaining;
+    result.met = result.totalEarned >= result.targetTotal &&
+      result.publicEarned >= result.publicTarget && result.otherEarned >= result.otherTarget;
     
     log('[学分] 已获: ' + result.totalEarned + '/' + result.targetTotal +
         ' (公需' + result.publicEarned + '/' + result.publicTarget +
@@ -770,55 +802,37 @@ var CreditPlanner = {
       return null;
     }
     
-    // 从未完成课程中筛选 (包括'学习完毕'但未申请证书的)
+    // 只选择有真实入口且能继续处理的课程；绝不再用课程名称伪造 cid。
     var unfinished = analysis.courses.filter(function(c) {
-      return !c.completed && !c.needsCertificate; // Skip 已申请 and 申请证书(needs 卡密)
+      return !c.completed && !c.needsCertificate && !!(c.actionUrl || c.link);
     });
-    
-    // v4.1.0: 证书申请需要卡密, 不自动操作, 跳过这些课程
-    // 选课优先级: 高进度 > 低进度, 剩余课件少的优先
-    // v4.0.0: Smart selection based on progress
+
     unfinished.sort(function(a, b) {
-      // v4.1.0: 证书课程已过滤, 排序按进度和剩余课件
-      // 1. needsExam = need to take exam (学习完毕 but no 申请证书 button)
       var aExam = a.needsExam ? 0 : 1;
       var bExam = b.needsExam ? 0 : 1;
       if (aExam !== bExam) return aExam - bExam;
-      
-      // 2. Higher progress % = closer to completion
       var aPct = a.progressPct || 0;
       var bPct = b.progressPct || 0;
       if (aPct !== bPct) return bPct - aPct;
-      
-      // 3. Fewer remaining coursewares = faster to finish
       var aRem = (a.progressTotal || 999) - (a.progressDone || 0);
       var bRem = (b.progressTotal || 999) - (b.progressDone || 0);
       if (aRem !== bRem) return aRem - bRem;
-      
-      // 4. Higher credit = better value
-      return b.credit - a.credit;
+      if (a.credit !== b.credit) return b.credit - a.credit;
+      return String(a.name).localeCompare(String(b.name), 'zh-CN');
     });
-    
-    // 优先公需课 (within same priority tier)
-    unfinished.sort(function(a, b) {
-      if (a.isPublic !== b.isPublic) return a.isPublic ? -1 : 1;
-      return 0;
-    });
-    
+
     var tasks = [];
     var acc = 0;
     var needPublic = analysis.publicRemaining;
     var needOther = analysis.otherRemaining;
-    var needTotal = analysis.totalRemaining;
-    
-    for (var i = 0; i < unfinished.length && acc < needTotal; i++) {
-      var c = unfinished[i];
-      if (c.isPublic && needPublic <= 0) continue;
-      if (!c.isPublic && needOther <= 0) continue;
-      
+    var selected = [];
+
+    function addTask(c) {
+      if (selected.indexOf(c) >= 0) return;
+      selected.push(c);
       tasks.push({
         name: c.name,
-        url: c.actionUrl || c.link || ('/pages/course.aspx?cid=' + c.name),
+        url: c.actionUrl || c.link,
         credit: c.credit,
         status: c.status,
         isPublic: c.isPublic,
@@ -830,16 +844,27 @@ var CreditPlanner = {
         progressPct: c.progressPct || 0,
         action: c.action || ''
       });
-      
       acc += c.credit;
-      if (c.isPublic) needPublic -= c.credit;
-      else needOther -= c.credit;
     }
+
+    for (var pi = 0; pi < unfinished.length && needPublic > 0; pi++) {
+      if (!unfinished[pi].isPublic) continue;
+      addTask(unfinished[pi]);
+      needPublic = Math.max(0, needPublic - unfinished[pi].credit);
+    }
+    for (var oi = 0; oi < unfinished.length && needOther > 0; oi++) {
+      if (unfinished[oi].isPublic) continue;
+      addTask(unfinished[oi]);
+      needOther = Math.max(0, needOther - unfinished[oi].credit);
+    }
+
+    var needTotal = analysis.totalRemaining;
     
     var plan = {
       tasks: tasks,
       total: acc,
       need: needTotal,
+      remainingAfterPlan: needPublic + needOther,
       createdAt: Date.now()
     };
     
@@ -1508,6 +1533,8 @@ var SmartEngine = {
     var self = this;
     var pageText = document.body ? document.body.innerText : '';
     var examFailed = pageText.indexOf('考试未通过') >= 0 || pageText.indexOf('未通过') >= 0;
+    var examPassed = pageText.indexOf('考试通过') >= 0 || pageText.indexOf('已通过') >= 0 ||
+      pageText.indexOf('完成项目学习可以申请学分') >= 0 || pageText.indexOf('考试合格') >= 0;
     if (examFailed) {
       log('[引擎] 考试未通过, 记录错误答案, 准备重试');
       try {
@@ -1532,6 +1559,13 @@ var SmartEngine = {
       } else { safeNavigate('/pages/study_info_list.aspx'); }
       return;
     }
+    if (!examPassed) {
+      log('[引擎] 无法确认考试是否通过，不推进任务；返回学习记录核验');
+      doResult();
+      setTimeout(function() { safeNavigate('/pages/study_info_list.aspx'); }, 3000);
+      return;
+    }
+    Store.d('HY_examTries');
     doResult(function() {
       self.nextTask();
       self._running = false;
@@ -2060,6 +2094,7 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
   
   var delaySoFar = 0;
   var answered = 0;
+  var submittedAnswers = {};
   
   for (var qi = 0; qi < questions.length; qi++) {
     var qEl = questions[qi];
@@ -2131,6 +2166,7 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
     }
     
     if (chosen) {
+      submittedAnswers[storeKey] = chosen.text;
       (function(opt) {
         setTimeout(function() {
           try {
@@ -2153,6 +2189,7 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
     currentTries: currentTries,
     round: round
   };
+  Store.s('HY_LastSubmittedAnswers', submittedAnswers);
   
   log("[考试] 已答 " + answered + " 题");
 }
@@ -2219,85 +2256,83 @@ function submitExam() {
 
 // 处理考试结果
 function doResult(callback) {
-  log("[考试结果] 解析结果并保存答案...");
-  
-  try {
-    var ra = Store.g(CONFIG.keys.rightAnswers, {});
-    var saved = 0;
-    
-    // v5.0.0: 先从文本解析 (考试结果页可能没有table)
-    var bodyText = document.body ? document.body.innerText : "";
-    var textLines = bodyText.split("\n");
-    for (var tli = 0; tli < textLines.length; tli++) {
-      var tline = textLines[tli].trim();
-      var tqMatch = tline.match(/^\d+[、.](.+)/);
-      if (tqMatch) {
-        var tq = tqMatch[1].trim().replace(/（.*$/, "").substring(0, 50);
-        var taMatch = tline.match(/您的答案[：:]\s*[A-E][、.，,]\s*(.+)/);
-        if (!taMatch && tli + 1 < textLines.length) taMatch = textLines[tli + 1].match(/您的答案[：:]\s*[A-E][、.，,]\s*(.+)/);
-        if (taMatch) { var ta = taMatch[1].trim(); if (tq && ta && !ra[tq]) { ra[tq] = ta; saved++; } }
-      }
-    }
-    // 也从表格或div解析考试结果
-    var tables = document.querySelectorAll("table.tablestyle, table");
-    for (var ti = 0; ti < tables.length; ti++) {
-      var rows = tables[ti].querySelectorAll("tr");
-      for (var ri = 0; ri < rows.length; ri++) {
-        var cells = rows[ri].querySelectorAll("td");
-        if (cells.length < 2) continue;
-        
-        var qText = '';
-        var answerText = '';
-        var isCorrect = false;
-        var userAnswer = '';
-        
-        for (var ci = 0; ci < cells.length; ci++) {
-          var txt = cells[ci].textContent.trim();
-          if (txt.indexOf('正确') >= 0 || txt.indexOf('对') >= 0 || txt === '√' || txt === '✓') isCorrect = true;
-          if (txt.indexOf('错误') >= 0 || txt === '错' || txt === '×') isCorrect = false;
-          // 长文本且非数字/分数 -> 题目或答案
-          if (txt.length > 10 && !txt.match(/^[\d.]+$/) && txt.indexOf('分') === -1 && txt.indexOf('正确') === -1 && txt.indexOf('错误') === -1) {
-            if (!qText) qText = txt;
-            else if (!answerText) answerText = txt;
-            else if (!userAnswer) userAnswer = txt;
-          }
-        }
-        
-        // 保存正确答案 (不管本次对错, 从解析中学习)
-        if (qText && answerText) {
-          var cleanQ = qText.replace(/^\s*\d+[、.，,\s]+/, '').replace(/\s+/g, ' ').trim().substring(0, 50);
-          var cleanA = answerText.replace(/^\s*[A-Za-z][、.，,)\s]+/, '').trim();
-          if (cleanQ && cleanA) {
-            ra[cleanQ] = cleanA;
-            saved++;
-            if (isCorrect) log('[考试结果] ✓ 保存正确答案: ' + cleanQ.substring(0, 20));
-          }
-        }
-      }
-    }
-    
-    // 也尝试从div结构解析
-    var qDivs = document.querySelectorAll('[class*="question"], [class*="ti"], .exam-item');
-    for (var di = 0; di < qDivs.length; di++) {
-      var qText2 = qDivs[di].querySelector('.q_name, .question-text, [class*="title"]');
-      var aText2 = qDivs[di].querySelector('.correct-answer, .right-answer, [class*="correct"], [class*="answer"]');
-      if (qText2 && aText2) {
-        var cq = qText2.textContent.replace(/^\s*\d+[、.，,\s]+/, '').replace(/\s+/g, ' ').trim().substring(0, 50);
-        var ca = aText2.textContent.replace(/^\s*[A-Za-z][、.，,)\s]+/, '').trim();
-        if (cq && ca && !ra[cq]) { ra[cq] = ca; saved++; }
-      }
-    }
-    
-    if (saved > 0) {
-      Store.s(CONFIG.keys.rightAnswers, ra);
-      log("[考试结果] 保存 " + saved + " 道正确答案");
-    } else {
-      log("[考试结果] 未解析到正确答案");
-    }
-  } catch(e) {
-    log("[考试结果] 出错: " + e.message);
+  log("[考试结果] 解析结果并保存可验证的正确答案...");
+
+  function cleanQuestion(text) {
+    return String(text || '')
+      .replace(/^\s*\d+[、.，,\s)\]]+/, '')
+      .replace(/（[^）]*(?:正确|错误|得分)[^）]*）/g, '')
+      .replace(/\s+/g, ' ').trim().substring(0, 50);
   }
-  
+  function cleanAnswer(text) {
+    return String(text || '').replace(/^\s*[A-Za-z][、.，,)\s]+/, '').replace(/\s+/g, ' ').trim();
+  }
+
+  try {
+    var right = Store.g(CONFIG.keys.rightAnswers, {});
+    var submitted = Store.g('HY_LastSubmittedAnswers', {});
+    var saved = 0;
+
+    function submittedFor(question) {
+      if (submitted[question]) return submitted[question];
+      var keys = Object.keys(submitted);
+      for (var si = 0; si < keys.length; si++) {
+        if (keys[si].indexOf(question) >= 0 || question.indexOf(keys[si]) >= 0) return submitted[keys[si]];
+      }
+      return '';
+    }
+    function save(question, answer) {
+      var q = cleanQuestion(question);
+      var a = cleanAnswer(answer);
+      if (!q || !a || a.length > 500) return;
+      if (right[q] !== a) {
+        right[q] = a;
+        saved++;
+      }
+    }
+
+    // 当前站点结果页的每题结构。只在明确“正确”图标/文字或明确“正确答案”字段时学习。
+    var items = document.querySelectorAll('.state_cour_lis, [data-question-result], .question-result, .exam-result-item');
+    for (var ii = 0; ii < items.length; ii++) {
+      var item = items[ii];
+      var questionEl = item.querySelector('[data-question], .q_name, .question-text, p[title], p');
+      var question = cleanQuestion(questionEl ? (questionEl.getAttribute('title') || questionEl.textContent) : '');
+      if (!question) continue;
+      var itemText = (item.textContent || '').replace(/\s+/g, ' ');
+      var explicit = itemText.match(/正确答案\s*[：:]\s*(?:[A-Za-z][、.，,)\s]*)?(.+?)(?:您的答案|$)/);
+      if (explicit && explicit[1]) {
+        save(question, explicit[1]);
+        continue;
+      }
+      var icon = item.querySelector('img');
+      var iconSignal = icon ? [icon.src, icon.alt, icon.title, icon.className].join(' ') : '';
+      var isCorrect = /bar_img|right|correct|success|dui|正确/i.test(iconSignal) ||
+        /(?:^|\s)(?:回答正确|答对|正确)(?:\s|$)/.test(itemText);
+      var isWrong = /wrong|error|incorrect|错误|答错/i.test(iconSignal) || /回答错误|答错/.test(itemText);
+      if (isCorrect && !isWrong) save(question, submittedFor(question));
+    }
+
+    // 兼容表格结果页，但必须存在明确的“正确答案：”标签。
+    var rows = document.querySelectorAll('table tr');
+    for (var ri = 0; ri < rows.length; ri++) {
+      var rowText = (rows[ri].textContent || '').replace(/\s+/g, ' ').trim();
+      var answerMatch = rowText.match(/正确答案\s*[：:]\s*(?:[A-Za-z][、.，,)\s]*)?(.+?)(?:您的答案|得分|$)/);
+      if (!answerMatch) continue;
+      var qNode = rows[ri].querySelector('.q_name, .question-text, [data-question], td');
+      if (qNode) save(qNode.textContent, answerMatch[1]);
+    }
+
+    if (saved > 0) {
+      Store.s(CONFIG.keys.rightAnswers, right);
+      log("[考试结果] 已保存 " + saved + " 道经结果页验证的正确答案");
+    } else {
+      log("[考试结果] 本页没有可验证的新答案");
+    }
+    Store.d('HY_LastSubmittedAnswers');
+  } catch(error) {
+    log("[考试结果] 出错: " + error.message);
+  }
+
   if (callback) setTimeout(callback, 3000);
 }
 
@@ -2802,6 +2837,7 @@ if (window.__HY_TEST_MODE__) {
     getQuestionFingerprint: getQuestionFingerprint,
     extractOptions: extractOptions,
     smartScore: smartScore,
+    doResult: doResult,
     isElementEnabled: isElementEnabled
   };
 }
