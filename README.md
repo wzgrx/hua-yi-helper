@@ -1,227 +1,107 @@
-# 华医网小助手 v3.6
+# 华医网学习助手 v6.0.0
 
-> 全自动智能刷课 | 真实适配2026华医网Vue SPA新版 | 学分规划 | 无人值守
+> 面向 2026 年华医网新版混合站点的油猴自动化脚本：登录辅助、学分规划、课程发现、视频/互动病例/问卷/考试流程、进度核验与异常恢复。
 
 [![License](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.6.1-brightgreen.svg)](https://github.com/wzgrx/hua-yi-helper)
-[![Platform](https://img.shields.io/badge/platform-Tampermonkey%20%7C%20Win11-orange.svg)](https://github.com/wzgrx/hua-yi-helper)
+[![Version](https://img.shields.io/badge/version-6.0.0-brightgreen.svg)](https://github.com/wzgrx/hua-yi-helper)
+[![Platform](https://img.shields.io/badge/platform-Tampermonkey%20%7C%20Edge%20%7C%20Win11-orange.svg)](https://github.com/wzgrx/hua-yi-helper)
 
----
+## 当前版本重点
 
-## v3.3.0 关键修复 (2026-07-08)
+v6 是一次围绕真实页面布局和可恢复执行的重构：
 
-### 视频-考试流程致命bug修复
+- 适配 `cme28.91huayi.com` 2026 登录页、Vue SPA 课程页、ASP.NET 课程详情页、学习记录页、`dcwj.91huayi.com` 问卷页、`hdbl.91huayi.com` 互动病例页。
+- 登录辅助支持密码登录页切换、账号/密码填充、用户协议勾选、本地图形验证码 OCR 识别与验证码错误重试。
+- 登录失败分类：验证码错误自动重试；账号/密码类服务端错误立即停止，避免无限刷新验证码。
+- 学分规划按年度过滤学习记录，并同时满足：总学分 25、公需课 5、其他课程 20。
+- 课程发现支持 Vue 分页跨页合并，只使用页面真实 URL，不伪造课程链接。
+- 视频页基于真实播放器/考试按钮状态推进，不再用本地播放秒数伪造完成。
+- 考试页按题组选项 `name` 分组，结果页仅学习明确判定正确的已提交答案。
+- 问卷页先填写必需控件再提交，不直接跳过真实问卷表单。
+- 互动病例页只点击可见、可用、白名单推进按钮，避免误点返回/关闭/删除等控件。
+- 运行状态写入 GM 存储，跨页面跳转后可恢复；暂停状态同样持久化。
 
-1. **jrks考试按钮disabled属性未检测** - 网站给按钮加disabled属性, 旧脚本只检查style.display导致误判
-2. **视频完成后不等待按钮启用** - 旧代码立即clearInterval, 按钮还未启用就返回课程列表
-3. **_running=false杀死定时器** - 旧代码第二次迭代就杀死定时器, 视频监控只跑1秒
-4. **href=#导航错误** - a.href返回完整URL带#, 改用getAttribute+click()触发jQuery处理器
-5. **版本号从未递增** - 3.2.1-3.2.6六次提交@version始终3.2.0, Tampermonkey永不更新
+## 安装
 
-## 核心创新 (v3.3)
+1. 安装 [Tampermonkey](https://www.tampermonkey.net/)。
+2. 打开脚本地址：
+   <https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js>
+3. 在 Tampermonkey 中安装或更新脚本。
+4. 打开华医网继续医学教育页面或登录页。
 
-### 真实网站DOM适配
-基于 **2026年华医网** 实际页面DOM深度分析重新设计:
-- **Vue SPA主页面**: `/cme/index` - 自动识别Vue动态渲染的课程卡片网格
-- **ASP.NET详情页**: `course.aspx?cid=X` - 支持传统格式的课件列表
-- **全员专项**: `/cme/fme` - Vue SPA版本路由
-- **问卷星**: `dcwj.91huayi.com` - 自动检测并处理视频前问卷
-- **学习记录**: `study_info_list.aspx` - ASP.NET表格学分解析
-- **我的继教**: `cme.aspx` - 混合格式学分数据
+## 使用
 
-### 智能Tab管理
-- 截获所有 `target="_blank"` 链接,统一使用 `location.href` 导航
-- 防止打开数百个标签页导致浏览器卡死
-- 最多3个并发标签页限制
+1. 打开华医网登录页或继续教育首页。
+2. 登录页右上角会出现脚本登录面板；保存账号密码后可自动尝试密码登录和图形验证码识别。
+3. 登录后点击脚本面板中的“计划”生成学习计划。
+4. 点击“执行”后脚本会按学习记录核验、课程详情、问卷、视频、考试、结果页的顺序推进。
+5. 需要中断时点击“暂停”；恢复时重新点击“执行”。
 
-### Vue SPA课程解析
-- 从 `.pro_cent > ul.jet_ul > li.jet_lis` 卡片结构提取:
-  - 课程名称 (`p.test_tit`)
-  - 学分值 (`<span>`包含"X.0学分")
-  - 课程状态 (已完成/待考试/学习中/未学习)
-- 分页识别: `el-pagination` 支持多页课程扫描
+凭据只保存在 Tampermonkey 的 GM 存储中，项目源码和测试均不包含账号、密码或 GitHub token。
 
-### 答题模块增强
-- 多层DOM检测: tablestyle → radio容器 → 通用选项
-- 题目指纹: 无视序号随机变化的正文匹配
-- 智能评分: 15维特征分析,不依赖云端API
-- 模糊匹配: 精确→包含→拼音逐级降级
+## 流程架构
 
-### 学习计划智能
-- 公需课优先 (5分必修)
-- 未学习 > 播放至x% > 学习中 > 待考试 优先级排序
-- 学分自动检查,达标自动跳过
+```text
+登录页
+  ├─ 切换密码登录
+  ├─ 填账号/密码/隐藏真实密码字段
+  ├─ OCR 图形验证码
+  └─ 根据错误类型重试或停止
 
----
+学习记录页
+  ├─ 按目标年度过滤
+  ├─ 只把“已申请”计入已获学分
+  └─ 计算公需/其他/总分缺口
 
-## 快速安装
+课程发现
+  ├─ Vue SPA 多页课程卡片扫描
+  ├─ ASP.NET 课程详情链接解析
+  └─ 合并真实 URL 生成任务队列
 
-1. 安装 [Tampermonkey](https://www.tampermonkey.net/)
-2. 打开 [最新油猴脚本](https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js)
-3. 点击安装
-4. 登录 [华医网](https://www.91huayi.com) 脚本自动运行
-
----
-
-## 使用方法
-
-1. 打开华医网继续医学教育首页 (`/cme/index`)
-2. 点击控制面板的 **🎯 计划** 按钮自动生成学习计划
-3. 点击 **▶ 执行** 开始全自动刷课
-4. 脚本将自动: 扫描课程 → 进入课件 → 完成问卷 → 播放视频 → 答题 → 下一课
-5. 需要暂停点击 **⏸ 暂停**
-
-### 模式说明
-
-| 模式 | 说明 |
-|------|------|
-| 🤖 智能规划 | 自动分析学分缺口,规划最优课程组合 |
-| 📝 视频+考试 | 刷所有未完成课程的视频和考试 |
-| 📺 仅视频 | 只刷视频,跳过考试 |
-| 📋 仅规划 | 仅显示学习计划,不自动执行 |
-
----
-
-## 技术架构
-
-```
-页面类型检测 (混合架构)
-├── Vue SPA (/cme/index, /cme/fme)
-│   └── .pro_cent > .jet_ul > .jet_lis 课程卡片解析
-├── ASP.NET (course.aspx?cid=X)
-│   └── a.f14blue.cw-title-link 课件链接
-├── 问卷页 (dcwj.91huayi.com)
-│   └── 自动完成/跳过问卷
-├── 视频页 (course_ware_polyv.aspx)
-│   └── Polyv播放器检测 + 完成状态轮询
-├── 考试页 (exam.aspx)
-│   └── 多层DOM检测 + 指纹匹配 + 智能评分
-└── 结果页 (exam_result.aspx)
-    └── 正确答案解析 + 持久化存储
+执行引擎
+  ├─ 问卷：填写必需控件后提交
+  ├─ 视频：监控真实进度和考试按钮
+  ├─ 互动病例：安全推进按钮白名单
+  ├─ 考试：题目指纹、答案记忆、智能试错
+  └─ 结果：通过后才推进任务，未知状态返回学习记录核验
 ```
 
-## 学分计算
+## 本地开发
 
-以2025年继续医学教育为例:
+```powershell
+cd "C:\Users\123\Documents\New project\hua-yi-helper"
+npm install
+npm test
 ```
-目标: 25分/年
-├─ 公需课: 5分 (固定,必刷)
-└─ 其他: 20分 (从继续教育/全员专项中选取)
+
+测试包括：
+
+- `tests/run-all.js`：脚本结构、元数据和核心模块存在性检查。
+- `tests/dom-integration.js`：基于 jsdom 的关键 DOM 行为回归测试。
+- `tests/source-quality.js`：源码质量检查，防止硬编码凭据、过时 API、无效选择器等问题。
+
+## Hermes 自动化入口
+
+项目保留 Node/Puppeteer 版 Hermes 入口，用于调试和后续自动化扩展：
+
+```powershell
+npm run plan
+npm run brush
+npm run full
 ```
 
-脚本自动从未完成课程中按优先级排序,生成最优学习计划。
+油猴脚本仍是主要交付物：`src/tampermonkey/hua-yi-helper.user.js`。
 
----
+## 版本记录
 
-## 更新日志
+### v6.0.0
 
-### v3.1.0 (2026.7.8) - 真实DOM重构版
-- **完全基于2026年华医网真实网站DOM分析重构**
-- 新增: Vue SPA主页面自动识别和课程卡片解析
-- 新增: 智能Tab管理, 截获 target="_blank" 防止打开数百标签页
-- 新增: 问卷页自动检测 (dcwj.91huayi.com)
-- 新增: ASP.NET详情页课件列表解析 (f14blue.cw-title-link)
-- 新增: 智能学分规划器,从Vue SPA课程卡片直接解析学分
-- 新增: 答题模块多层DOM检测 + 题目指纹 + 15维智能评分
-- 新增: 分页课程扫描支持
-- 重写: 控制面板全新UI设计
-- 重写: 主路由基于真实URL和DOM特征分发
-- 修复: 页面类型误判问题
-- 移除: 所有lis-inside-content/btn67/tablestyle等废弃选择器
+- 全面重构登录、学分规划、课程发现、执行恢复、视频、问卷、考试、互动病例逻辑。
+- 增加 Tesseract.js 本地图形验证码 OCR。
+- 增加年度/分类学分核验，防止总分够但分类不足时误判达标。
+- 移除会导致误判完成或破坏站点完整性的全局覆盖逻辑。
+- 增加可重复运行的 DOM 集成测试和源码质量检查。
 
-### v3.0.2 (2026.7.8) - 考试模块升级
-- 指纹识别|文本匹配|防随机化
-- 三层DOM检测策略 + 智能评分
+## 协议
 
-[完整更新日志](HY_HISTORY.md)
-
----
-
-## 免责声明
-
-本脚本仅供学习交流使用,使用者需自行承担使用后果。
-请遵守华医网用户协议和相关法规。
-
-## 开源协议
-
-[AGPL v3](LICENSE)
-5. **版本号从未递增** - 3.2.1-3.2.6六次提交@version始终3.2.0, Tampermonkey永不更新
-
-## v3.4.0-3.4.1 功能增强 (2026-07-08)
-
-### 从任意页面启动
-- 点击执行按钮后, 自动跳转到课程列表页扫描课程并生成计划
-- 不再要求用户手动导航到特定页面
-
-### 动态年份检测
-- `targetYear` 改为 `new Date().getFullYear()`, 不再硬编码2025
-- 2026年正常识别学习记录
-
-### 答题模块增强
-- **反向题逻辑**: 题干含"不是/错误/除外"时, 取最低分选项(否定选项更可能正确)
-- **医学知识启发式**: 增加PaO2/FiO2/PEEP等医学指标, 规范指南, 剂量频率等7个评分维度
-- **答案记忆**: 正确答案持久化存储到GM_setValue, 下次遇到同指纹题目直接精确匹配
-- **考试结果解析**: 从table和div两种结构提取正确答案, 供下次考试使用
-- **选项点击可靠性**: 先直接设置input.checked=true再click, 回退到点击父元素
-
-### UI改进
-- 日志默认显示(不再隐藏)
-- 计划/执行按钮从任意页面可用
-- killPopups避免触发反作弊检测(跳过.study_diaog .btn_sign等陷阱区域)
-
-### 真实测试验证
-- 通过Codex Chrome扩展在真实91huayi.com页面验证:
-  - 视频页→考试页跳转成功(jrks.click()触发jQuery AJAX)
-  - 考试页5道题目正确解析(选项GUID随机化不影响)
-  - 学分分析: 10/25分(公需5+其他5), 缺口15分
-  - 课程列表: 12门课程正确扫描
-- **考试结果解析**: 从table和div两种结构提取正确答案, 供下次考试使用
-- **选项点击可靠性**: 先直接设置input.checked=true再click, 回退到点击父元素
-
-## v3.5.0 标签页管理 + UI增强 (2026-07-08)
-
-### 全局window.open拦截
-- 在页面加载前(零号拦截器)重写`window.open`函数
-- 所有`window.open(url)`调用都重定向到`location.href = url`(同标签页导航)
-- 同时拦截`a[target="_blank"]`的点击事件, 改为同标签页导航
-- **彻底解决"动不动打开几百个tab标签页, 卡死电脑"的问题**
-- 浏览器验证: `window.open("/pages/study_info_list.aspx")`成功在同标签页跳转
-
-### UI面板增强
-- 新增学分状态显示行: `学分: 5/25`
-- 新增任务进度显示行: `进度: 0/3`
-- `CreditPlanner.analyze()`和`showTasks()`时自动更新显示
-
-### "学习完毕"课程正确处理
-- 只有`已申请`才算真正完成(学分已到账)
-- `学习完毕`表示课件已学完但证书未申请/考试未考
-- 这些课程被优先排序到计划最前面(最快能拿到学分)
-- 计划排序: 学习完毕 > 未学习 > 播放中 > 学习中 > 其他
-
-### 浏览器验证
-- `window.open`拦截: ✅ 同标签页跳转, 不开新标签页
-- 学分分析: ✅ 5/25分(公需5已申请, 其他0, 2门学习完毕待考, 4门学习中)
-- 课程扫描: ✅ 12门课程正确识别
-- 课程扫描: ✅ 12门课程正确识别
-
-## v3.6.0-3.6.1 学习记录优先 + 互动病例 (2026-07-08)
-
-### 学习记录优先流程
-- 用户点击执行后, 脚本先导航到`study_info_list.aspx`查看真实学分状态
-- 不再在Vue SPA页面扫描(那里所有课程显示"未学习")
-- 正确识别: 已申请(已完成) / 学习完毕(需考试) / 学习中(需继续)
-- 浏览器验证: 已获5分, 待处理6门课, 生成7个任务计划
-
-### 互动病例课件支持
-- 发现网站新课件格式: `hdbl.91huayi.com` (Vue SPA互动病例)
-- `course_ware.aspx`链接重定向到互动病例页面, 非传统视频页
-- 新增`handleInteractiveCase()`: 自动点击"查看病例"/"下一步"/"继续"
-- 新增`@match hdbl.91huayi.com`域名匹配
-- 新增`exam_result_hd.aspx`考试结果页检测
-- 浏览器验证: 成功检测并自动点击"查看病例"按钮
-
-### 其他修复
-- `proCent`变量名bug修复(第416行+第419行)
-- `start()`不再在调用前设置`_running=true`(导致直接返回)
-- Vue SPA页面从学习记录转来时合并新课程到计划
- - 任务URL回退: 无链接时用`course.aspx?cid=`构造
+[AGPL-3.0](LICENSE)
