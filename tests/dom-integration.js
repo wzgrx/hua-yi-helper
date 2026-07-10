@@ -47,6 +47,23 @@ test('课程详情解析名称、链接与真实状态', () => {
   assert.match(rows[1].href, /cwid=2/);
 });
 
+test('Vue 分页课程发现跨页合并且下一页只在可用时点击', () => {
+  const { api, window } = boot(`
+    <div class="pro_cent"><ul><li class="jet_lis"><p class="test_tit">课程一</p><a href="/pages/course.aspx?cid=1">进入</a><span>2学分</span></li></ul></div>
+    <div class="el-pagination"><button class="btn-next">下一页</button></div>
+  `, 'https://cme28.91huayi.com/cme/index');
+  let clicked = 0;
+  window.document.querySelector('.btn-next').addEventListener('click', () => { clicked++; });
+  api.VueCourseScanner.scanFromVueSPA();
+  assert.equal(api.VueCourseScanner.advanceVuePage(), true);
+  assert.equal(clicked, 1);
+  window.document.querySelector('.pro_cent ul').innerHTML = '<li class="jet_lis"><p class="test_tit">课程二</p><a href="/pages/course.aspx?cid=2">进入</a><span>3学分</span></li>';
+  api.VueCourseScanner.scanFromVueSPA();
+  assert.deepEqual(Array.from(api.VueCourseScanner.getDiscoveredCourses(), course => course.name).sort(), ['课程一', '课程二']);
+  window.document.querySelector('.btn-next').disabled = true;
+  assert.equal(api.VueCourseScanner.advanceVuePage(), false);
+});
+
 test('学习记录只把已申请计入已获学分', () => {
   const { api } = boot(`
     <table><thead><tr>${'<th>x</th>'.repeat(8)}</tr></thead><tbody>
@@ -156,6 +173,26 @@ test('考试结果只学习结果页明确验证为正确的已提交答案', ()
   assert.equal(answers['正确题目'], '正确选项');
   assert.equal(answers['错误题目'], undefined);
   assert.equal(values.has('HY_LastSubmittedAnswers'), false);
+});
+
+test('问卷先填写必需控件再返回唯一提交按钮', () => {
+  const { api, window } = boot(`
+    <form id="divQuestion">
+      <label><input type="radio" name="q1" value="1">满意</label>
+      <label><input type="radio" name="q1" value="2">一般</label>
+      <label><input type="checkbox" name="q2" value="a">选项A</label>
+      <select name="q3"><option value="">请选择</option><option value="x">X</option></select>
+      <textarea name="q4"></textarea>
+      <button id="ctlNext" type="submit">提交</button>
+    </form>
+  `, 'https://dcwj.91huayi.com/survey');
+  const result = api.fillSurveyForm();
+  assert(result.answered >= 4);
+  assert.equal(result.submit.id, 'ctlNext');
+  assert.equal(window.document.querySelector('input[name="q1"]:checked') !== null, true);
+  assert.equal(window.document.querySelector('input[name="q2"]:checked') !== null, true);
+  assert.equal(window.document.querySelector('select[name="q3"]').value, 'x');
+  assert.equal(window.document.querySelector('textarea[name="q4"]').value, '无');
 });
 
 test('disabled、aria-disabled 与 CSS disabled 均不可用', () => {

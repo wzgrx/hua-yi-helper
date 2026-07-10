@@ -397,6 +397,40 @@ function killPopups() {
 // ═══════════════════════════════════════════════════════════════
 
 var VueCourseScanner = {
+  rememberCourses: function(courses) {
+    var catalog = Store.g(HY_DISC_KEY || CONFIG.keys.discoveredCourses, null);
+    if (!catalog || catalog.year !== CONFIG.targetYear || !catalog.items) {
+      catalog = { year: CONFIG.targetYear, items: {}, updatedAt: Date.now() };
+    }
+    (courses || []).forEach(function(course) {
+      var key = course.link || course.name;
+      if (!key) return;
+      var previous = catalog.items[key] || {};
+      catalog.items[key] = Object.assign({}, previous, course, { discoveredAt: Date.now() });
+    });
+    catalog.updatedAt = Date.now();
+    Store.s(CONFIG.keys.discoveredCourses, catalog);
+    return Object.keys(catalog.items).map(function(key) { return catalog.items[key]; });
+  },
+
+  getDiscoveredCourses: function() {
+    var catalog = Store.g(CONFIG.keys.discoveredCourses, null);
+    if (!catalog || catalog.year !== CONFIG.targetYear || !catalog.items) return [];
+    return Object.keys(catalog.items).map(function(key) { return catalog.items[key]; });
+  },
+
+  advanceVuePage: function() {
+    var next = document.querySelector(
+      '.el-pagination .btn-next, button.btn-next, .ant-pagination-next button, .ant-pagination-next a'
+    );
+    if (!next) return false;
+    var container = next.closest('li, .ant-pagination-next') || next;
+    if (!isElementEnabled(next) || /disabled/i.test(container.className || '') ||
+        container.getAttribute('aria-disabled') === 'true') return false;
+    next.click();
+    return true;
+  },
+
   // 从Vue SPA页面扫描课程卡片
   scanFromVueSPA: function() {
     var courses = [];
@@ -428,6 +462,7 @@ var VueCourseScanner = {
               completed: false
             });
           });
+          this.rememberCourses(courses);
           return courses;
         }
         log('[VUE扫描] 未找到课程容器或链接');
@@ -502,6 +537,7 @@ var VueCourseScanner = {
       }
       
       log('[VUE扫描] 解析到 ' + courses.length + ' 门课程');
+      this.rememberCourses(courses);
       return courses;
     } catch(e) {
       log('[VUE扫描] 扫描出错: ' + e.message);
@@ -754,7 +790,8 @@ var CreditPlanner = {
       });
     } else {
       // 备用: 从Vue SPA课程卡片扫描
-      courses = VueCourseScanner.scanFromVueSPA();
+      VueCourseScanner.scanFromVueSPA();
+      courses = VueCourseScanner.getDiscoveredCourses();
     }
     
     var result = {
@@ -916,6 +953,66 @@ var CreditPlanner = {
 // 流程: 课程列表 → 课程详情 → 课件页面 → 问卷 → 视频 → 考试 → 结果 → 下一课
 // ═══════════════════════════════════════════════════════════════
 
+function fillSurveyForm() {
+  var root = document.querySelector('#divQuestion, #fieldset1, form') || document.body;
+  var answered = 0;
+  var groups = {};
+  Array.from(root.querySelectorAll('input[type="radio"]')).forEach(function(input, index) {
+    if (input.disabled) return;
+    var key = input.name || ('radio-' + index);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(input);
+  });
+  Object.keys(groups).forEach(function(key) {
+    var options = groups[key];
+    if (options.some(function(input) { return input.checked; })) return;
+    var choice = options[Math.floor((options.length - 1) / 2)];
+    if (choice) { choice.click(); answered++; }
+  });
+
+  var checkboxGroups = {};
+  Array.from(root.querySelectorAll('input[type="checkbox"]')).forEach(function(input, index) {
+    if (input.disabled || input.id === 'agree1') return;
+    var key = input.name || ('checkbox-' + index);
+    if (!checkboxGroups[key]) checkboxGroups[key] = [];
+    checkboxGroups[key].push(input);
+  });
+  Object.keys(checkboxGroups).forEach(function(key) {
+    var options = checkboxGroups[key];
+    if (!options.some(function(input) { return input.checked; }) && options[0]) {
+      options[0].click();
+      answered++;
+    }
+  });
+
+  Array.from(root.querySelectorAll('select')).forEach(function(select) {
+    if (select.disabled || select.value) return;
+    var option = Array.from(select.options).find(function(item) { return item.value && !item.disabled; });
+    if (option) {
+      select.value = option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      answered++;
+    }
+  });
+  Array.from(root.querySelectorAll('textarea, input[type="text"]')).forEach(function(input) {
+    if (input.disabled || input.value || /验证码|手机|姓名|身份证/.test(input.placeholder || '')) return;
+    input.value = '无';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    answered++;
+  });
+
+  var submit = root.querySelector('#ctlNext, #submit_button, #btnSubmit, #divSubmit .btn_submit, input[type="submit"], button[type="submit"], .submitbutton, a.submit');
+  if (!submit) {
+    var candidates = root.querySelectorAll('button, input[type="button"], a');
+    for (var ci = 0; ci < candidates.length; ci++) {
+      var text = (candidates[ci].textContent || candidates[ci].value || '').replace(/\s+/g, ' ').trim();
+      if (/^(提交|完成|下一步|立即提交|提交问卷)$/.test(text)) { submit = candidates[ci]; break; }
+    }
+  }
+  return { answered: answered, submit: submit };
+}
+
 var SmartEngine = {
   _running: false,
   _currentPage: '',
@@ -1019,6 +1116,8 @@ var SmartEngine = {
           // No courses need action from study record - go to CME index to find new courses
           log('[引擎] 学习记录中的课程无需处理, 跳转到课程列表寻找新课程...');
           Store.s('__HY_needMoreCourses', true);
+          Store.d(CONFIG.keys.discoveredCourses);
+          self._running = false;
           safeNavigate('/cme/index');
         }
       } else {
@@ -1235,26 +1334,10 @@ var SmartEngine = {
     setTimeout(function() {
       if (!self._running) return;
       
-      // 问卷星问卷: 查找提交/完成按钮
-      var m = location.href.match(/sojumpparm=[^|]*\|[^|]*\|[^|]*\|([^&]+)/);
-      if (m) {
-        var videoUrl = decodeURIComponent(m[1]);
-        log('[引擎] 从sojumpparm提取视频地址, 跳过问卷');
-        safeNavigate(videoUrl);
-        return;
-      }
-
-      var cwid = URL.getCWID();
-      if (cwid) {
-        log('[引擎] 直接访问polyv视频页');
-        safeNavigate('/course_ware/course_ware_polyv.aspx?cwid=' + cwid);
-        return;
-      }
-
-      var submitBtn = document.querySelector('#divSubmit .btn_submit, input[type="submit"], button[type="submit"], .submitbutton, a.submit');
-      if (submitBtn) {
-        log('[引擎] 提交问卷...');
-        submitBtn.click();
+      var survey = fillSurveyForm();
+      if (survey.submit) {
+        log('[引擎] 已填写 ' + survey.answered + ' 个问卷字段，提交问卷');
+        survey.submit.click();
         // 提交后等待重定向到视频
         setTimeout(function() {
           if (self._running) {
@@ -1262,8 +1345,8 @@ var SmartEngine = {
           }
         }, 5000);
       } else {
-        // 可能问卷不需要填写, 直接查找重定向
-        log('[引擎] 无提交按钮, 尝试直接进入视频');
+        // 页面本身没有问卷表单时，才使用站点提供的返回视频地址。
+        log('[引擎] 页面没有可提交问卷，读取站点返回地址');
         // URL中的sojumpparm参数包含视频地址
         var m = location.href.match(/sojumpparm=[^|]*\|[^|]*\|[^|]*\|([^&]+)/);
         if (m) {
@@ -1271,7 +1354,7 @@ var SmartEngine = {
           log('[引擎] 从sojumpparm找到视频地址');
           safeNavigate(videoUrl);
         } else {
-          // 尝试修改URL直接访问视频
+          // 兼容只携带 cwid 的过渡页。
           var cwid = URL.getCWID();
           if (cwid) {
             safeNavigate('/course_ware/course_ware_polyv.aspx?cwid=' + cwid);
@@ -1373,6 +1456,9 @@ var SmartEngine = {
     var maxChecks = 21600; // 6 hours
     var videoStarted = false;
     var videoAlreadyCompleted = false; // v3.8.1: shared flag for both setTimeout and checkTimer
+    var lastVideoTime = -1;
+    var stalledChecks = 0;
+    var recoveryKey = 'HY_VideoRecovery:' + (URL.getCWID() || URL.full.substring(0, 120));
     
     // 只信任网站给出的可进入考试状态或视频真实 ended 状态。
     // 旧版按 localStorage >100 秒伪判完成并调用 s2j_onPlayOver，会造成服务端进度与页面不一致。
@@ -1424,9 +1510,17 @@ var SmartEngine = {
 
         killPopups();
         
-        var video = document.querySelector('video');
-        if (video) {
-          try { video.muted = true; video.volume = 0; } catch(e) {}
+          var video = document.querySelector('video');
+          if (video) {
+            try { video.muted = true; video.volume = 0; } catch(e) {}
+
+            if (video.currentTime > lastVideoTime + 0.2) {
+              lastVideoTime = video.currentTime;
+              stalledChecks = 0;
+              Store.d(recoveryKey);
+            } else if (!video.ended && !videoAlreadyCompleted) {
+              stalledChecks++;
+            }
           
           // v3.8.0: 检测已完成视频 (ban_history_time=on 导致视频重置到0)
           // 如果jrks按钮存在但disabled, 且视频在开头, 需要播放视频
@@ -1443,7 +1537,7 @@ var SmartEngine = {
             // v3.8.1: Don't play if video was already completed (localStorage check)
             // ban_history_time=on resets video to 0:00, but we know it was watched
             if (!videoStarted && !video.paused) { videoStarted = true; log('[引擎] 视频正在播放'); }
-            if (!videoStarted && video.paused && checkCount % 5 === 0) {
+            if (video.paused && !video.ended && checkCount % 3 === 0) {
               try { var p = video.play(); if(p&&p.then) p.catch(function(){}); } catch(e) {}
             }
           } else if (checkCount % 10 === 0) {
@@ -1454,6 +1548,26 @@ var SmartEngine = {
           if (checkCount % 30 === 0) {
             var remaining = video.duration > 0 ? Math.round(video.duration - video.currentTime) : 0;
             log('[引擎] 视频进度 ' + Math.round(progress * 100) + '% (剩余' + remaining + '秒)');
+          }
+          if (stalledChecks === 120) {
+            log('[引擎] 视频连续 2 分钟无进展，尝试恢复播放器');
+            try { if (window.player && typeof window.player.j2s_resumeVideo === 'function') window.player.j2s_resumeVideo(); } catch(e) {}
+            try { if (window.cc_js_Player && typeof window.cc_js_Player.play === 'function') window.cc_js_Player.play(); } catch(e) {}
+            try { var rp = video.play(); if (rp && rp.catch) rp.catch(function(){}); } catch(e) {}
+          }
+          if (stalledChecks >= 300) {
+            clearInterval(checkTimer);
+            var recoveryCount = Store.g(recoveryKey, 0) + 1;
+            Store.s(recoveryKey, recoveryCount);
+            if (recoveryCount <= 3) {
+              log('[引擎] 视频连续 5 分钟无进展，重新加载页面恢复 (' + recoveryCount + '/3)');
+              location.reload();
+            } else {
+              log('[引擎] 视频多次恢复失败，返回学习记录核验，任务保持未完成');
+              Store.d(recoveryKey);
+              safeNavigate('/pages/study_info_list.aspx');
+            }
+            return;
           }
           if (progress > 0.95 || (video.duration > 0 && video.currentTime >= video.duration - 5)) {
             var jrksFinal = document.getElementById('jrks');
@@ -2617,6 +2731,13 @@ function mainRouter() {
   
   // 创建UI
   createControlPanel();
+
+  if (Store.g(CONFIG.keys.paused, false)) {
+    SmartEngine._running = false;
+    SmartEngine.updateUI('paused');
+    log('[路由] 自动流程已暂停，等待用户点击执行');
+    return;
+  }
   
   // 清理页面限制
   cleanupRestrictions();
@@ -2701,12 +2822,36 @@ function mainRouter() {
       // 多次尝试扫描, 等待Vue渲染完成
       var retryCount = 0;
       var maxRetries = 6;
+      var seenVuePages = {};
+      var vuePageWaits = 0;
+      var vuePagesScanned = 0;
       function tryVueScan() {
         if (SmartEngine._running) {
           SmartEngine.handleCurrentPage();
           return;
         }
         var analysis = CreditPlanner.analyze();
+        if (Store.g('__HY_needMoreCourses', false) && analysis && analysis.courses.length > 0) {
+          var currentCards = VueCourseScanner.scanFromVueSPA();
+          var signature = currentCards.map(function(course) { return course.link || course.name; }).sort().join('|');
+          if (signature && seenVuePages[signature]) {
+            vuePageWaits++;
+            if (vuePageWaits <= 4) {
+              setTimeout(tryVueScan, 1500);
+              return;
+            }
+          } else if (signature) {
+            seenVuePages[signature] = true;
+            vuePageWaits = 0;
+            vuePagesScanned++;
+          }
+          if (vuePagesScanned < 100 && VueCourseScanner.advanceVuePage()) {
+            log('[课程发现] 已扫描第 ' + vuePagesScanned + ' 页，继续下一页');
+            setTimeout(tryVueScan, 2500);
+            return;
+          }
+          log('[课程发现] 分页扫描完成，共发现 ' + analysis.courses.length + ' 门课程');
+        }
         if (analysis && !analysis.met) {
           log('[学分] 缺口: ' + analysis.totalRemaining + '分 (公需' + analysis.publicRemaining + ', 其他' + analysis.otherRemaining + ')');
           CreditPlanner.showQuickStatus(analysis);
@@ -2714,36 +2859,10 @@ function mainRouter() {
             if (Store.g('__HY_needMoreCourses', false)) {
               Store.d('__HY_needMoreCourses');
               log('[引擎] 从学习记录页转来, 寻找新课程补充计划...');
-              // Merge Vue SPA courses with existing analysis
-              var existingPlan = Store.g(HY_PLAN_KEY, null);
-              var vueCourses = analysis.courses;
-              var newTasks = [];
-              var needMore = analysis.totalRemaining;
-              for (var vi = 0; vi < vueCourses.length && newTasks.length < 10; vi++) {
-                var vc = vueCourses[vi];
-                // Skip if already in plan
-                var inPlan = false;
-                if (existingPlan && existingPlan.tasks) {
-                  for (var pi = 0; pi < existingPlan.tasks.length; pi++) {
-                    if (existingPlan.tasks[pi].name === vc.name) { inPlan = true; break; }
-                  }
-                }
-                if (!inPlan) {
-                  newTasks.push({name: vc.name, url: vc.link, credit: vc.credit, status: vc.status, isPublic: vc.isPublic, completed: false});
-                  needMore -= vc.credit;
-                  if (needMore <= 0) break;
-                }
-              }
-              if (newTasks.length > 0) {
-                if (existingPlan && existingPlan.tasks) {
-                  existingPlan.tasks = existingPlan.tasks.concat(newTasks);
-                  Store.s(HY_PLAN_KEY, existingPlan);
-                } else {
-                  Store.s(HY_PLAN_KEY, {tasks: newTasks, total: newTasks.reduce(function(s,t){return s+t.credit;},0), need: analysis.totalRemaining, createdAt: Date.now()});
-                }
-                Store.s(HY_PLAN_IDX, 0);
+              var discoveredPlan = CreditPlanner.generatePlan(analysis);
+              if (discoveredPlan && discoveredPlan.tasks.length > 0) {
                 SmartEngine._running = true;
-                log('[引擎] 补充' + newTasks.length + '门新课程到计划');
+                log('[引擎] 已从完整课程目录生成 ' + discoveredPlan.tasks.length + ' 项任务');
                 SmartEngine.showTasks();
                 var firstTask = SmartEngine.getCurrentTask();
                 if (firstTask) SmartEngine.navigateToTask(firstTask);
@@ -2838,6 +2957,7 @@ if (window.__HY_TEST_MODE__) {
     extractOptions: extractOptions,
     smartScore: smartScore,
     doResult: doResult,
+    fillSurveyForm: fillSurveyForm,
     isElementEnabled: isElementEnabled
   };
 }
