@@ -5,20 +5,16 @@
   提供便捷的接口启动Hermes全自动刷课
 .PARAMETER Mode
   运行模式: full/video/plan (默认: full)
-.PARAMETER Speed
-  播放倍速 (默认: 2)
 .PARAMETER Headless
   无头模式 (默认: 有界面)
 .EXAMPLE
-  .\run-hermes.ps1 -Mode full -Speed 2 -Headless
+  .\run-hermes.ps1 -Mode full -Headless
   .\run-hermes.ps1 -Mode video
 #>
 
 param(
   [ValidateSet("full","video","plan","brush")]
   [string]$Mode = "full",
-  [ValidateRange(1,5)]
-  [int]$Speed = 2,
   [switch]$Headless = $false
 )
 
@@ -47,13 +43,13 @@ if (-not (Test-Path $nodeModules)) {
 }
 
 $headlessArg = if ($Headless) { "--headless" } else { "" }
-$fullCmd = "node `"$HermesScript`" --mode $Mode --speed $Speed $headlessArg"
+$fullCmd = "node `"$HermesScript`" --mode $Mode $headlessArg"
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  华医网小助手 v3.0" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  模式: $Mode"
-Write-Host "  倍速: ${Speed}x"
+Write-Host "  播放: 正常顺序播放（1×）"
 Write-Host "  界面: $(if ($Headless) { '无头(后台)' } else { '有界面' })"
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "`n启动中..."

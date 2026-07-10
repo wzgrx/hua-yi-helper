@@ -16,7 +16,7 @@ class PageProcessor {
     await page.evaluate(() => {
       try {
         // 温馨提示弹窗
-        const tips = document.querySelectorAll('#div_processbar_tip, .pv-ask-skip, ' +
+        const tips = document.querySelectorAll('#div_processbar_tip, ' +
           '.processbar_show, [class*="tip"], [class*="modal"]');
         for (const tip of tips) {
           if (tip.style && getComputedStyle(tip).display !== 'none') {

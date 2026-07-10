@@ -25,6 +25,11 @@ assert(!allSource.includes(':contains('), '不得使用浏览器不支持的 CSS
 assert(!allSource.includes('ghp_'), '源码不得包含 GitHub token');
 assert(!allSource.includes('17795547652'), '源码不得硬编码用户账号');
 assert(!allSource.includes('HYW+zjx+2212'), '源码不得硬编码用户密码');
+assert(!new RegExp('playback' + 'Rate', 'i').test(allSource), '项目不得包含违规播放速率控制');
+assert(!new RegExp('--' + 'speed\\b', 'i').test(allSource), '项目不得提供播放速率启动参数');
+assert(!/currentTime\s*=/.test(allSource), '项目不得写入视频播放位置');
+assert(!new RegExp('s2j_' + 'onPlayOver', 'i').test(allSource), '项目不得伪造视频播放完成');
+assert(!new RegExp('pv-ask-' + 'skip', 'i').test(allSource), '项目不得绕过播放器互动步骤');
 assert(!allSource.includes('_obs.observe(document.documentElement'), 'document-start 不得观察可能为 null 的 documentElement');
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));

@@ -6,7 +6,6 @@
  *
  * Options:
  *   --mode <mode>      运行模式: full/video/brush/plan (默认: full)
- *   --speed <n>        播放倍速 (默认: 1)
  *   --headless         无头模式 (默认: false)
  *   --chrome-path      自定义Chrome路径
  *   --target-year      目标年份 (默认: 当前年份)
@@ -20,7 +19,6 @@ async function main() {
   const args = process.argv.slice(2);
   const config = {
     mode: 'full',
-    speed: 1,
     headless: false,
     chromePath: '',
     targetYear: new Date().getFullYear(),
@@ -35,10 +33,6 @@ async function main() {
       case '--mode':
       case '-m':
         config.mode = args[++i] || 'full';
-        break;
-      case '--speed':
-      case '-s':
-        config.speed = parseFloat(args[++i]) || 1;
         break;
       case '--headless':
       case '-h':
@@ -64,7 +58,6 @@ Hermes v6 - 华医网可视化诊断运行器
 
 Options:
   --mode <mode>        运行模式: full/video/brush/plan (默认: full)
-  --speed <n>          播放倍速 (默认: 1)
   --headless           无头模式
   --chrome-path <path> 自定义Chrome/Edge路径
   --target-year <y>    目标年份 (默认: 当前年份)
@@ -78,7 +71,7 @@ Options:
   plan   仅生成学习计划, 不执行
 
 示例:
-  node index.js --mode full --speed 1
+  node index.js --mode full
   node index.js --mode video --headless
   node index.js --mode plan --target-year ${new Date().getFullYear()} --target-credits 25
 `);
@@ -86,7 +79,7 @@ Options:
     }
   }
 
-  console.log(`[Hermes] v6 启动 | 模式: ${config.mode} | 倍速: ${config.speed}x | 目标: ${config.targetYear}年 ${config.targetCredits}学分`);
+  console.log(`[Hermes] v6 启动 | 模式: ${config.mode} | 正常顺序播放: 1× | 目标: ${config.targetYear}年 ${config.targetCredits}学分`);
 
   const bot = new Bot(config);
   try {

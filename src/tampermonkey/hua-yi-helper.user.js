@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      6.0.4
+// @version      6.0.5
 // @description  2026 华医网全流程学习自动化：登录、学分规划、课程学习、考试、断点恢复与诊断
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
@@ -18,8 +18,8 @@
 // @connect      tessdata.projectnaptha.com
 // @require      https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js
 // @run-at       document-start
-// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.4
-// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.4
+// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.5
+// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=6.0.5
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
 // ==/UserScript==
 /*!
@@ -59,9 +59,9 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "6.0.4";
+var HY_VERSION = "6.0.5";
 var HY_UPDATE_DATE = "2026.7.10";
-var HY_UPDATE_LOG = "v6.0.4 视频完成判定修复：禁止用页面任意“已完成”文本误判视频结束，避免播放1秒后回跳";
+var HY_UPDATE_LOG = "v6.0.5 严格按网站要求以1×正常顺序播放，并逐项完成播放器互动";
 var HY_HISTORY = [
   "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
   "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",
@@ -88,7 +88,6 @@ var CONFIG = {
   publicTarget: 5,
   otherTarget: 20,
   mode: 'auto',  // 'video' / 'full' / 'auto' / 'plan'
-  speeds: [1, 1.5, 2, 4, 8],
   delays: {
     submitTime: 4900,
     reTryTime: 2100,
@@ -292,13 +291,13 @@ function killPopups() {
     var allBtns = [];
     for (var kc = 0; kc < knownContainers.length; kc++) {
       allBtns = allBtns.concat(Array.from(knownContainers[kc].querySelectorAll(
-        'button, input[type="button"], a.btn, .ui-button, [class*="close"], .pv-ask-skip'
+        'button, input[type="button"], a.btn, .ui-button, [class*="close"]'
       )));
     }
     for (var i = 0; i < allBtns.length; i++) {
       var txt = (allBtns[i].textContent || allBtns[i].value || '').trim();
       if (['知道了', '关闭', '继续播放', '跳过'].indexOf(txt) >= 0 ||
-          allBtns[i].classList.contains('pv-ask-skip') || /(^|[-_])close([-_]|$)/i.test(allBtns[i].className || '')) {
+          /(^|[-_])close([-_]|$)/i.test(allBtns[i].className || '')) {
         allBtns[i].click();
       }
     }
@@ -1429,8 +1428,7 @@ var SmartEngine = {
     var stalledChecks = 0;
     var recoveryKey = 'HY_VideoRecovery:' + (URL.getCWID() || URL.full.substring(0, 120));
     
-    // 只信任网站给出的可进入考试状态或视频真实 ended 状态。
-    // 旧版按 localStorage >100 秒伪判完成并调用 s2j_onPlayOver，会造成服务端进度与页面不一致。
+    // 严格按网站正常流程顺序播放，只信任视频真实 ended 状态或网站启用的考试入口。
     setTimeout(function() {
       try {
         var videos = document.querySelectorAll('video');
@@ -1450,10 +1448,7 @@ var SmartEngine = {
             p.then(function() { log('[引擎] 播放已开始'); }).catch(function(e) {});
           }
         }
-        // v3.8.0: 不点击倍速按钮 - 网站maxPlaybackRateLimit=1.0,
-        // 倍速控制已关闭(ifRatePlay=false), 点击倍速按钮无效且
-        // 可能触发反作弊检测(blockAbnormalPlugin)
-        log('[引擎] 视频播放中(1x倍速, 网站不支持加速)');
+        log('[引擎] 视频正常顺序播放中（1×）');
       } catch(e) {
         log('[引擎] 播放启动错误: ' + e.message);
       }

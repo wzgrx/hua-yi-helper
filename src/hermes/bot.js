@@ -236,14 +236,13 @@ class HermesBot {
     }
 
     // 静音 + 播放
-    await this.page.evaluate((speed) => {
+    await this.page.evaluate(() => {
       try {
         const v = document.querySelector('video');
         if (v) {
           v.muted = true;
           v.defaultMuted = true;
           v.volume = 0;
-          v.playbackRate = speed;
           v.play().catch(() => {});
         }
         if (typeof player !== 'undefined') {
@@ -254,9 +253,9 @@ class HermesBot {
           if (ccPlayer.volume) ccPlayer.volume(0);
         }
       } catch (e) {}
-    }, this.config.speed);
+    });
 
-    console.log(`[Hermes] 视频已开始播放 (${this.config.speed}x, 静音)`);
+    console.log('[Hermes] 视频已按网站正常流程开始顺序播放（1×，静音）');
 
     // 监控视频进度
     let completed = false;

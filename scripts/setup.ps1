@@ -132,7 +132,7 @@ function Create-ScheduledTask {
     return $false
   }
 
-  $action = New-ScheduledTaskAction -Execute "node" -Argument "`"$hermesScript`" --mode full --headless --speed 2"
+  $action = New-ScheduledTaskAction -Execute "node" -Argument "`"$hermesScript`" --mode full --headless"
   $trigger = New-ScheduledTaskTrigger -Daily -At $Time
   $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
@@ -175,7 +175,7 @@ Write-Host "`n📋 使用方式:" -ForegroundColor White
 Write-Host "  1. Tampermonkey (油猴):" -ForegroundColor Gray
 Write-Host "     安装 src\tampermonkey\hua-yi-helper.user.js" -ForegroundColor Gray
 Write-Host "  2. Hermes (WSL/Node.js):" -ForegroundColor Gray
-Write-Host "     cd src\hermes && node index.js --mode full --speed 2" -ForegroundColor Gray
+Write-Host "     cd src\hermes && node index.js --mode full" -ForegroundColor Gray
 Write-Host "  3. PowerShell (Win11):" -ForegroundColor Gray
 Write-Host "     node src\hermes\index.js --mode full --headless" -ForegroundColor Gray
 Write-Host "  4. 计划任务已设置在每日 $TaskTime 自动执行" -ForegroundColor Gray
