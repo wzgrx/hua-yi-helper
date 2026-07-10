@@ -20,7 +20,7 @@ function assert(condition, message) {
 }
 
 console.log('========================================');
-console.log('  华医网小助手 v5.1.0 - 测试套件');
+console.log('  华医网学习助手 v6.0.0 - 测试套件');
 console.log('========================================\n');
 
 // 1. 主文件存在性
@@ -35,9 +35,10 @@ console.log('\n\u{1F4DC} 油猴脚本元数据:');
 assert(content.includes('==UserScript=='), 'UserScript头');
 assert(content.includes('@match        *://*.91huayi.com/*'), '@match 91huayi');
 assert(content.includes('@match        *://dcwj.91huayi.com/*'), '@match dcwj');
-  assert(content.includes('@version      5.1.0'), '版本号 5.1.0');
-assert(content.includes('@run-at       document-idle'), 'document-idle');
+assert(content.includes('@version      6.0.0'), '版本号 6.0.0');
+assert(content.includes('@run-at       document-start'), 'document-start');
 assert(content.includes('GM_getValue'), 'GM授权');
+assert(content.includes('tesseract.js@5.1.1'), '本地图形验证码 OCR');
 
 // 3. 核心模块
 console.log('\n\u{1F9F0} 核心模块:');
@@ -46,6 +47,7 @@ assert(content.includes('var CONFIG'), '配置模块');
 assert(content.includes('var URL'), 'URL路由');
 assert(content.includes('function safeNavigate'), '智能导航');
 assert(content.includes('function killPopups'), '弹窗处理');
+assert(content.includes('var LoginController'), '登录控制器');
 
 // 4. Vue SPA课程扫描
 console.log('\n\u{1F50D} Vue SPA扫描器:');
@@ -96,9 +98,9 @@ assert(content.includes('URL.isSurvey'), '问卷检测');
 assert(content.includes('URL.isVideo'), '视频检测');
 assert(content.includes('URL.isExam'), '考试检测');
 
-// 10. 反作弊
-console.log('\n\u{1F6E1} 反作弊:');
-assert(content.includes('blockAbnormalPlugin'), 'blockAbnormalPlugin覆盖');
+// 10. 页面兼容
+console.log('\n\u{1F6E1} 页面兼容:');
+assert(!content.includes('window.blockAbnormalPlugin = function'), '不覆盖网站完整性检测');
 assert(content.includes('MutationObserver'), 'MutationObserver');
 
 // 总结

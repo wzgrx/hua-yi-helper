@@ -1,3 +1,5 @@
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * 页面处理器
  * 处理考试页面、考试结果页面、课程列表页面
@@ -51,11 +53,11 @@ class PageProcessor {
     while (round <= maxRounds) {
       console.log(`[PageProcessor] 第${round}轮答题`);
 
-      await this._doExamRound(page, allAnswers, triedData, round);
+      triedData = await this._doExamRound(page, allAnswers, triedData, round);
 
       // 提交
       console.log('[PageProcessor] 提交答案...');
-      await page.waitForTimeout(5000);
+      await sleep(5000);
 
       await page.evaluate(() => {
         try {
@@ -70,7 +72,7 @@ class PageProcessor {
         } catch (e) {}
       });
 
-      await page.waitForTimeout(5000);
+      await sleep(5000);
 
       // 检查结果
       const url = page.url();
@@ -164,7 +166,7 @@ class PageProcessor {
     }, allAnswers, triedData, round);
 
     // 读取试错状态
-    triedData = await page.evaluate(() => window.__hermesTried || {});
+    return await page.evaluate(() => window.__hermesTried || {});
   }
 
   // 考试结果处理
@@ -218,13 +220,17 @@ class PageProcessor {
       // 点击重新考试
       await page.evaluate(() => {
         try {
-          const btn = document.querySelector('input[type="button"][value="重新考试"], ' +
-            'button:contains("重新考试")');
+          let btn = document.querySelector('input[type="button"][value="重新考试"]');
+          if (!btn) {
+            btn = Array.from(document.querySelectorAll('button')).find(
+              button => (button.textContent || '').includes('重新考试')
+            );
+          }
           if (btn) btn.click();
           else location.reload();
         } catch (e) {}
       });
-      await page.waitForTimeout(3000);
+      await sleep(3000);
     }
 
     return result.isPass;
@@ -233,7 +239,7 @@ class PageProcessor {
     // 课程列表处理 (支持新版cme.aspx布局)
   async processCourseList(page) {
     console.log('[PageProcessor] 扫描课程列表...');
-    await page.waitForTimeout(2000);
+    await sleep(2000);
 
     // 方式1: 查找新版btn67继续学习按钮
     const foundBtn = await page.evaluate(() => {
@@ -251,7 +257,7 @@ class PageProcessor {
       }
       return false;
     });
-    if (foundBtn) { console.log('[PageProcessor] 通过新版按钮进入课程'); await page.waitForTimeout(5000); return true; }
+    if (foundBtn) { console.log('[PageProcessor] 通过新版按钮进入课程'); await sleep(5000); return true; }
 
     // 方式2: 查找学习记录表链接
     const foundLink = await page.evaluate(() => {
@@ -259,7 +265,7 @@ class PageProcessor {
       if (links.length > 0) { links[0].click(); return true; }
       return false;
     });
-    if (foundLink) { console.log('[PageProcessor] 通过课程链接进入'); await page.waitForTimeout(5000); return true; }
+    if (foundLink) { console.log('[PageProcessor] 通过课程链接进入'); await sleep(5000); return true; }
 
     // 方式3: 传统扫描(兼容旧版)
     const found = await page.evaluate(() => {
@@ -294,7 +300,7 @@ class PageProcessor {
     });
     if (found) {
       console.log('[PageProcessor] 通过传统扫描进入课程');
-      await page.waitForTimeout(5000);
+      await sleep(5000);
     } else {
       console.log('[PageProcessor] 未找到待学习课程');
     }

@@ -1,10 +1,10 @@
 {
   "name": "hua-yi-helper",
-  "version": "3.2.0",
-  "description": "华医网小助手 v3.0 - 全自动智能刷课，智能学分规划，油猴/WSL/Hermes三端适配",
+  "version": "6.0.0",
+  "description": "华医网学习助手 v6 - 可恢复的全流程油猴自动化与 Edge 端到端验证",
   "main": "src/hermes/index.js",
   "scripts": {
-    "test": "node tests/run-all.js",
+    "test": "node tests/run-all.js && node tests/dom-integration.js && node tests/source-quality.js",
     "start": "node src/hermes/index.js",
     "brush": "node src/hermes/index.js --mode brush",
     "full": "node src/hermes/index.js --mode full",
@@ -21,6 +21,9 @@
   "license": "AGPL-3.0",
   "dependencies": {
     "puppeteer-core": "^22.0.0"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
   },
   "engines": {
     "node": ">=18.0.0"

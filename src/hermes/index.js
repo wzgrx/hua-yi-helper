@@ -1,15 +1,15 @@
 /**
- * Hermes v3.0 - 华医网全自动刷课 (Node.js + Puppeteer)
+ * Hermes v6 - 华医网可视化诊断运行器 (Node.js + Puppeteer)
  * ============================================================
  * CLI入口
  * 用法: node index.js [options]
  *
  * Options:
  *   --mode <mode>      运行模式: full/video/brush/plan (默认: full)
- *   --speed <n>        播放倍速 (默认: 2)
+ *   --speed <n>        播放倍速 (默认: 1)
  *   --headless         无头模式 (默认: false)
  *   --chrome-path      自定义Chrome路径
- *   --target-year      目标年份 (默认: 2025)
+ *   --target-year      目标年份 (默认: 当前年份)
  *   --target-credits   目标学分 (默认: 25)
  * ============================================================
  */
@@ -20,10 +20,10 @@ async function main() {
   const args = process.argv.slice(2);
   const config = {
     mode: 'full',
-    speed: 2,
+    speed: 1,
     headless: false,
     chromePath: '',
-    targetYear: 2025,
+    targetYear: new Date().getFullYear(),
     targetCredits: 25,
     publicCredits: 5,
     baseUrl: 'https://cme28.91huayi.com'
@@ -38,7 +38,7 @@ async function main() {
         break;
       case '--speed':
       case '-s':
-        config.speed = parseFloat(args[++i]) || 2;
+        config.speed = parseFloat(args[++i]) || 1;
         break;
       case '--headless':
       case '-h':
@@ -50,7 +50,7 @@ async function main() {
         break;
       case '--target-year':
       case '-y':
-        config.targetYear = parseInt(args[++i]) || 2025;
+        config.targetYear = parseInt(args[++i]) || new Date().getFullYear();
         break;
       case '--target-credits':
       case '-t':
@@ -58,16 +58,16 @@ async function main() {
         break;
       case '--help':
         console.log(`
-Hermes v3.0 - 华医网全自动刷课
+Hermes v6 - 华医网可视化诊断运行器
 
 用法: node index.js [options]
 
 Options:
   --mode <mode>        运行模式: full/video/brush/plan (默认: full)
-  --speed <n>          播放倍速 (默认: 2)
+  --speed <n>          播放倍速 (默认: 1)
   --headless           无头模式
   --chrome-path <path> 自定义Chrome/Edge路径
-  --target-year <y>    目标年份 (默认: 2025)
+  --target-year <y>    目标年份 (默认: 当前年份)
   --target-credits <n> 目标学分 (默认: 25)
   --help               显示帮助
 
@@ -78,15 +78,15 @@ Options:
   plan   仅生成学习计划, 不执行
 
 示例:
-  node index.js --mode full --speed 2
+  node index.js --mode full --speed 1
   node index.js --mode video --headless
-  node index.js --mode plan --target-year 2025 --target-credits 25
+  node index.js --mode plan --target-year ${new Date().getFullYear()} --target-credits 25
 `);
         process.exit(0);
     }
   }
 
-  console.log(`[Hermes] v3.0 启动 | 模式: ${config.mode} | 倍速: ${config.speed}x | 目标: ${config.targetYear}年 ${config.targetCredits}学分`);
+  console.log(`[Hermes] v6 启动 | 模式: ${config.mode} | 倍速: ${config.speed}x | 目标: ${config.targetYear}年 ${config.targetCredits}学分`);
 
   const bot = new Bot(config);
   try {

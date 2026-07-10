@@ -6,7 +6,7 @@
  * - 全自动视频播放 (Polyv + CC)
  * - 试错考试引擎
  * - 答案持久化存储
- * - 反作弊注入
+ * - 页面兼容与诊断
  */
 
 const puppeteer = require('puppeteer-core');
@@ -16,35 +16,17 @@ const os = require('os');
 const CreditPlanner = require('./lib/credit-planner');
 const AnswerStore = require('./lib/answer-store');
 const PageProcessor = require('./lib/page-processor');
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// 反作弊注入脚本 (在页面创建时注入)
-const ANTI_CHEAT_SCRIPT = `
+// 只做无侵入的可用性清理。旧版覆盖 Object.defineProperty、setTimeout、
+// setInterval 和 addEventListener，会破坏 Vue、播放器及站点鉴权逻辑。
+const PAGE_COMPAT_SCRIPT = `
 (function() {
-  try { window.blockAbnormalPlugin = function() {}; } catch(e) {}
-  var _origDP = Object.defineProperty;
-  Object.defineProperty = function(obj, prop, desc) {
-    if (obj === window && prop === 'blockAbnormalPlugin') return window;
-    return _origDP.apply(this, arguments);
-  };
-  var _origAEL = EventTarget.prototype.addEventListener;
-  EventTarget.prototype.addEventListener = function(type, listener, options) {
-    if (type === 'contextmenu') return;
-    if (this === document && type === 'click' && String(listener).indexOf('isTrusted') !== -1) return;
-    if (this === window && type === 'load' && String(listener).indexOf('blockAbnormalPlugin') !== -1) return;
-    return _origAEL.call(this, type, listener, options);
-  };
-  var _origSI = window.setInterval;
-  window.setInterval = function(cb, delay) {
-    var s = String(cb);
-    if (s.indexOf('blockAbnormalPlugin') !== -1 && s.indexOf('ratePlayLimitNum') !== -1) return 0;
-    if (s.indexOf('queryIsAuth') !== -1) return 0;
-    return _origSI.apply(this, arguments);
-  };
-  var _origST = window.setTimeout;
-  window.setTimeout = function(cb, delay) {
-    if (String(cb).indexOf('blockAbnormalPlugin') !== -1) return 0;
-    return _origST.apply(this, arguments);
-  };
+  document.addEventListener('DOMContentLoaded', function() {
+    if (!document.body) return;
+    document.body.removeAttribute('oncontextmenu');
+    document.body.removeAttribute('oncopy');
+  }, { once: true });
 })();
 `;
 
@@ -112,14 +94,14 @@ class HermesBot {
     // 在所有页面上注入反作弊脚本
     const pages = await this.browser.pages();
     for (const p of pages) {
-      await p.evaluateOnNewDocument(ANTI_CHEAT_SCRIPT);
+      await p.evaluateOnNewDocument(PAGE_COMPAT_SCRIPT);
     }
 
     this.browser.on('targetcreated', async (target) => {
       try {
         const p = await target.page();
         if (p) {
-          await p.evaluateOnNewDocument(ANTI_CHEAT_SCRIPT);
+          await p.evaluateOnNewDocument(PAGE_COMPAT_SCRIPT);
         }
       } catch (e) {}
     });
@@ -140,8 +122,8 @@ class HermesBot {
       if (target.type() === 'page') {
         const newPage = await target.page();
         if (newPage) {
-          await newPage.waitForTimeout(1000);
-          await newPage.evaluateOnNewDocument(ANTI_CHEAT_SCRIPT);
+          await sleep(1000);
+          await newPage.evaluateOnNewDocument(PAGE_COMPAT_SCRIPT);
         }
       }
     });
@@ -156,7 +138,7 @@ class HermesBot {
     console.log(`[Hermes] 导航: ${url}`);
     try {
       await this.page.goto(url, opts);
-      await this.page.waitForTimeout(2000);
+      await sleep(2000);
       this.currentUrl = this.page.url();
     } catch (err) {
       console.log(`[Hermes] 导航超时: ${url}, 继续...`);
@@ -229,10 +211,10 @@ class HermesBot {
       // 处理不同任务类型
       if (task.action === '考试' && task.link) {
         await this.goto(task.link);
-        await this.page.waitForTimeout(3000);
+        await sleep(3000);
         await this.processor.processExam(this.page);
         // 考试完成后等结果
-        await this.page.waitForTimeout(3000);
+        await sleep(3000);
       } else if (task.link) {
         await this.goto(task.link);
         await this.processVideoPage();
@@ -283,7 +265,7 @@ class HermesBot {
 
     while (!completed && monitorCount < maxWait && this.isRunning) {
       monitorCount++;
-      await this.page.waitForTimeout(5000);
+      await sleep(5000);
 
       // 弹窗处理
       await this.processor.killPopups(this.page);
@@ -343,7 +325,7 @@ class HermesBot {
               }
             } catch (e) {}
           });
-          await this.page.waitForTimeout(5000);
+          await sleep(5000);
 
           // 判断是否到了考试页
           const url = this.page.url();
@@ -406,7 +388,7 @@ class HermesBot {
     });
 
     if (navigated) {
-      await this.page.waitForTimeout(5000);
+      await sleep(5000);
       // 检查是否到了新的视频页
       const url = this.page.url();
       if (url.includes('course_ware') || url.includes('course.aspx')) {
