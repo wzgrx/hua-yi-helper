@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         🥇【华医网小助手v3】全自动智能刷课|学分规划|无人值守
+// @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      5.1.0
-// @description  全自动智能刷课 - 真实适配2026华医网Vue SPA+ASP.NET混合|智能学分规划(公需5+其他20=25)|学习记录表优先|Vue重试|自动静音|Win11/油猴
+// @version      6.0.0
+// @description  2026 华医网全流程学习自动化：登录、学分规划、课程学习、考试、断点恢复与诊断
 // @author       wzgrx | 基于miiky-nerm/hua-yi-helper v2.0.5重构
 // @license      AGPL-3.0
 // @match        *://*.91huayi.com/*
@@ -14,7 +14,10 @@
 // @grant        GM_listValues
 // @grant        GM_addStyle
 // @grant        GM_info
-// @run-at       document-idle
+// @connect      cdn.jsdelivr.net
+// @connect      tessdata.projectnaptha.com
+// @require      https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js
+// @run-at       document-start
 // @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js
 // @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
@@ -56,8 +59,6 @@
     try { window.__HY_rawConsole.log.apply(null, arguments); } catch(e2) {}
   }
   window.__HY_log = _safeLog;
-  try { window.blockAbnormalPlugin = function() {}; } catch(e) {}
-  
   // v3.5.0: Global window.open interception - prevent hundreds of tabs
   try {
     var _origOpen = window.open;
@@ -113,9 +114,9 @@ function __HY_main() {
 // ═══════════════════════════════════════════════════════════════
 // 版本信息
 // ═══════════════════════════════════════════════════════════════
-var HY_VERSION = "5.1.0";
-var HY_UPDATE_DATE = "2026.7.9";
-var HY_UPDATE_LOG = "v3.3.0 关键修复: jrks考试按钮disabled属性检测|视频完成后等待按钮启用而非立即返回|_running不再杀死视频定时器|href=#修复为getAttribute+click|无视频时也检测考试按钮|版本号终于递增到3.3.0";
+var HY_VERSION = "6.0.0";
+var HY_UPDATE_DATE = "2026.7.10";
+var HY_UPDATE_LOG = "v6.0.0 状态机重构：跨页面持久化、真实播放监控、答题可靠性、登录适配、可验证测试";
 var HY_HISTORY = [
   "v3.1.0 (2026.7.8) - 完全基于真实网站DOM重构:",
   "  · 混合架构: 自动识别Vue SPA(/cme/index) vs ASP.NET(course.aspx)",
@@ -161,7 +162,11 @@ var CONFIG = {
     currentPlan: 'HY_PlanV2',
     planProgress: 'HY_PlanIdx',
     discoveredCourses: 'HY_Discovered',
-    completedCourses: 'HY_Completed'
+    completedCourses: 'HY_Completed',
+    running: 'HY_Running',
+    paused: 'HY_Paused',
+    runtime: 'HY_RuntimeV3',
+    credentials: 'HY_CredentialsV1'
   }
 };
 
@@ -210,10 +215,12 @@ var URL = (function() {
     // ASP.NET pages
     isCourseDetail: last === 'course.aspx' && href.indexOf('cid=') !== -1,
     // Certificate application page
-    isCertificateApply: last === 'apply_certificate.aspx',
+    isCertificateApply: last === 'apply_certificate.aspx' || last === 'apply_certificate_top.aspx',
+    isCardSelect: last === 'card_select.aspx',
     isCourseList: (last === 'course.aspx' && href.indexOf('cid=') === -1) || last === 'cme.aspx',
     isCME: last === 'cme.aspx',
     isStudyList: last === 'study_info_list.aspx',
+    isLogin: last === 'login.aspx' || href.indexOf('/secure/login') !== -1,
     // Video pages
     isVideo: last.indexOf('course_ware_polyv') !== -1 || last.indexOf('course_ware_cc') !== -1,
     isPolyv: last.indexOf('course_ware_polyv') !== -1,
@@ -275,10 +282,19 @@ function log(msg) {
   } catch(e) {}
 }
 
+function isElementEnabled(el) {
+  if (!el) return false;
+  var ariaDisabled = (el.getAttribute('aria-disabled') || '').toLowerCase();
+  var className = typeof el.className === 'string' ? el.className : '';
+  return !el.disabled && !el.hasAttribute('disabled') && ariaDisabled !== 'true' &&
+    !/(^|\s)(disabled|is-disabled)(\s|$)/i.test(className) &&
+    el.style.display !== 'none';
+}
+
 // 智能导航 - 防止打开新标签页
 function safeNavigate(url) {
   if (!url || url.indexOf('javascript:') === 0) return false;
-  if (window.__HY_paused) { log('[导航] 已暂停, 取消导航'); return false; } // v4.2.0
+  if (window.__HY_paused || Store.g(CONFIG.keys.paused, false)) { log('[导航] 已暂停, 取消导航'); return false; }
   _navCooldown = Date.now() + CONFIG.delays.navCooldown;
   _isNavigating = true;
   log('[导航] -> ' + url.substring(0, 120));
@@ -352,23 +368,22 @@ function cleanupRestrictions() {
 // 弹窗杀手 - 处理疲劳/温馨提示/防刷题弹窗
 function killPopups() {
   try {
-    // Close popup buttons but AVOID anti-cheat trapped buttons
-    // Anti-cheat detects non-trusted clicks on .layer_tips .rig_btn, .study_diaog .btn_sign
-    var allBtns = document.querySelectorAll('button, input[type="button"], a.btn, .ui-button');
+    // 只处理播放器已知的非业务提示。旧版点击所有“确定/是/否”并隐藏所有 modal，
+    // 可能误交卷、误提交问卷或遮掉登录错误信息。
+    var knownContainers = document.querySelectorAll(
+      '#div_processbar_tip, .pv-ask-wrap, .pv-ask-container, .player-tip, .course-tip'
+    );
+    var allBtns = [];
+    for (var kc = 0; kc < knownContainers.length; kc++) {
+      allBtns = allBtns.concat(Array.from(knownContainers[kc].querySelectorAll(
+        'button, input[type="button"], a.btn, .ui-button, [class*="close"], .pv-ask-skip'
+      )));
+    }
     for (var i = 0; i < allBtns.length; i++) {
       var txt = (allBtns[i].textContent || allBtns[i].value || '').trim();
-      if (['知道了', '确定', '关闭', '继续', '是', '否', '我再想想'].indexOf(txt) >= 0) {
-        // Skip if inside anti-cheat trap zone
-        if (allBtns[i].closest('.study_diaog') && allBtns[i].closest('.btn_sign')) continue;
-        if (allBtns[i].closest('.layer_tips') && allBtns[i].closest('.rig_btn')) continue;
+      if (['知道了', '关闭', '继续播放', '跳过'].indexOf(txt) >= 0 ||
+          allBtns[i].classList.contains('pv-ask-skip') || /(^|[-_])close([-_]|$)/i.test(allBtns[i].className || '')) {
         allBtns[i].click();
-      }
-    }
-    // Hide popups by setting display none (safer than clicking)
-    var popups = document.querySelectorAll('.layui-layer, .dialog_box, [class*="popup"], [class*="modal"], [class*="overlay"]');
-    for (var j = 0; j < popups.length; j++) {
-      if (popups[j].style.display !== 'none') {
-        popups[j].style.display = 'none';
       }
     }
   } catch(e) {}
@@ -383,7 +398,93 @@ function killPopups() {
 // ═══════════════════════════════════════════════════════════════
 
 var VueCourseScanner = {
+  rememberCourses: function(courses) {
+    var catalog = Store.g(HY_DISC_KEY || CONFIG.keys.discoveredCourses, null);
+    if (!catalog || catalog.year !== CONFIG.targetYear || !catalog.items) {
+      catalog = { year: CONFIG.targetYear, items: {}, updatedAt: Date.now() };
+    }
+    (courses || []).forEach(function(course) {
+      var key = course.link || course.name;
+      if (!key) return;
+      var previous = catalog.items[key] || {};
+      catalog.items[key] = Object.assign({}, previous, course, { discoveredAt: Date.now() });
+    });
+    catalog.updatedAt = Date.now();
+    Store.s(CONFIG.keys.discoveredCourses, catalog);
+    return Object.keys(catalog.items).map(function(key) { return catalog.items[key]; });
+  },
+
+  getDiscoveredCourses: function() {
+    var catalog = Store.g(CONFIG.keys.discoveredCourses, null);
+    if (!catalog || catalog.year !== CONFIG.targetYear || !catalog.items) return [];
+    return Object.keys(catalog.items).map(function(key) { return catalog.items[key]; });
+  },
+
+  advanceVuePage: function() {
+    var next = document.querySelector(
+      '.el-pagination .btn-next, button.btn-next, .ant-pagination-next button, .ant-pagination-next a'
+    );
+    if (!next) return false;
+    var container = next.closest('li, .ant-pagination-next') || next;
+    if (!isElementEnabled(next) || /disabled/i.test(container.className || '') ||
+        container.getAttribute('aria-disabled') === 'true') return false;
+    next.click();
+    return true;
+  },
+
   // 从Vue SPA页面扫描课程卡片
+  parseVueCourseCard: function(card, index) {
+    var nameEl = card.querySelector('.test_tit') || card.querySelector('h3, h4, [class*="title"], [class*="name"]');
+    var rawText = (card.innerText || card.textContent || '').trim();
+    var lines = rawText.split(/\n+/).map(function(line) {
+      return line.replace(/\s+/g, ' ').trim();
+    }).filter(Boolean);
+    var name = nameEl ? (nameEl.textContent || '').trim() : '';
+    if (!name) {
+      for (var li = 0; li < lines.length; li++) {
+        if (!/^(国家级|省级|市级|项目编号|项目负责人|负责人单位|关注度|基础训练|学习提高|前沿进展|专业科目|公需科目|[\d.]+\s*学分)$/.test(lines[li]) &&
+            lines[li].indexOf('学分') < 0 && lines[li].length > 2) {
+          name = lines[li];
+          break;
+        }
+      }
+    }
+    if (!name) name = '课程 ' + (index + 1);
+
+    var linkEl = card.querySelector('a[href*="course.aspx?cid="]');
+    var link = linkEl ? linkEl.href : '';
+    if (linkEl && linkEl.target === '_blank') linkEl.target = '_self';
+
+    var credit = 0;
+    for (var ci = 0; ci < lines.length; ci++) {
+      var cm = lines[ci].match(/([\d.]+)\s*学分/);
+      if (cm) { credit = parseFloat(cm[1]); break; }
+    }
+    if (!credit) {
+      var spanText = Array.from(card.querySelectorAll('span, p, div')).map(function(el) {
+        return el.textContent || '';
+      }).join(' ');
+      var cm2 = spanText.match(/([\d.]+)\s*学分/);
+      if (cm2) credit = parseFloat(cm2[1]);
+    }
+    if (!credit) credit = 1;
+
+    var status = '未学习';
+    if (/已申请|已完成/.test(rawText)) status = '已完成';
+    else if (/待考试|考试/.test(rawText)) status = '待考试';
+    else if (/学习中|播放至|继续学习/.test(rawText)) status = '学习中';
+
+    return {
+      name: name,
+      link: link,
+      credit: credit,
+      status: status,
+      isPublic: /公需|公共/.test(name + rawText),
+      isInteractive: !!card.querySelector('.jet_icon, [class*="interactive"], [class*="case"]'),
+      completed: status === '已完成'
+    };
+  },
+
   scanFromVueSPA: function() {
     var courses = [];
     try {
@@ -414,6 +515,7 @@ var VueCourseScanner = {
               completed: false
             });
           });
+          this.rememberCourses(courses);
           return courses;
         }
         log('[VUE扫描] 未找到课程容器或链接');
@@ -431,63 +533,14 @@ var VueCourseScanner = {
       
       for (var i = 0; i < cards.length; i++) {
         try {
-          var card = cards[i];
-          
-          // 课程名称: p.test_tit
-          var nameEl = card.querySelector('.test_tit') || card.querySelector('h3, h4, [class*="title"], [class*="name"]');
-          var name = nameEl ? (nameEl.textContent || '').trim() : '';
-          if (!name) name = '课程 ' + (i + 1);
-          
-          // 课程链接: div.jet_head > a[href*="course.aspx?cid="]
-          var linkEl = card.querySelector('a[href*="course.aspx?cid="]');
-          var link = linkEl ? linkEl.href : '';
-          
-          // 防止新标签页
-          if (linkEl && linkEl.target === '_blank') {
-            linkEl.target = '_self';
-          }
-          
-          // 学分: 从包含"学分"文本的span提取
-          var creditSpan = card.querySelector('span');
-          var credit = 0;
-          if (creditSpan) {
-            var spanText = creditSpan.textContent || '';
-            var cm = spanText.match(/([\d.]+)\s*学分/);
-            if (cm) credit = parseFloat(cm[1]);
-          }
-          // 回退: 从整个卡片文本中找学分
-          if (credit === 0) {
-            var cardText = card.textContent || '';
-            var cm2 = cardText.match(/([\d.]+)\s*学分/);
-            if (cm2) credit = parseFloat(cm2[1]);
-          }
-          if (credit === 0) credit = 1; // 默认1分
-          
-          // 课程状态: 从卡片文本分析
-          var status = '未学习';
-          var cardText = card.textContent || '';
-          if (cardText.indexOf('已完成') >= 0) status = '已完成';
-          else if (cardText.indexOf('待考试') >= 0) status = '待考试';
-          else if (cardText.indexOf('学习中') >= 0 || cardText.indexOf('播放至') >= 0) status = '学习中';
-          
-          // 互动病例标记
-          var isInteractive = card.querySelector('.jet_icon') !== null;
-          
-          courses.push({
-            name: name,
-            link: link,
-            credit: credit,
-            status: status,
-            isPublic: name.indexOf('公需') >= 0,
-            isInteractive: isInteractive,
-            completed: status === '已完成'
-          });
+          courses.push(this.parseVueCourseCard(cards[i], i));
         } catch(e) {
           log('[VUE扫描] 卡片解析错误: ' + e.message);
         }
       }
       
       log('[VUE扫描] 解析到 ' + courses.length + ' 门课程');
+      this.rememberCourses(courses);
       return courses;
     } catch(e) {
       log('[VUE扫描] 扫描出错: ' + e.message);
@@ -555,8 +608,20 @@ var VueCourseScanner = {
     try {
       var thead = document.querySelector('table thead');
       if (!thead) return null;
-      var thCount = thead.querySelectorAll('th').length;
+      var headerCells = Array.from(thead.querySelectorAll('th, td'));
+      var headers = headerCells.map(function(cell) { return (cell.textContent || '').replace(/\s+/g, ' ').trim(); });
+      var thCount = headers.length;
       var isStudyInfo = thCount >= 6;
+      function headerIndex(pattern, fallback) {
+        for (var hi = 0; hi < headers.length; hi++) if (pattern.test(headers[hi])) return hi;
+        return fallback;
+      }
+      var nameIndex = headerIndex(/项目名称|课程名称|项目/, 0);
+      var creditIndex = headerIndex(/学分|分值/, 2);
+      var statusIndex = headerIndex(/学习状态|状态/, 3);
+      var progressIndex = headerIndex(/学习进度|进度/, 6);
+      var actionIndex = headerIndex(/操作/, 7);
+      var yearIndex = headerIndex(/年度|年份/, -1);
       
       var tbody = document.querySelector('table tbody');
       if (!tbody) return null;
@@ -567,21 +632,32 @@ var VueCourseScanner = {
       for (var ri = 0; ri < rows.length; ri++) {
         var cells = rows[ri].querySelectorAll('td');
         if (cells.length < 4) continue;
+
+        var rowText = (rows[ri].textContent || '').replace(/\s+/g, ' ').trim();
+        var yearText = yearIndex >= 0 && cells[yearIndex] ? (cells[yearIndex].textContent || '') : rowText;
+        var yearMatch = yearText.match(/(?:19|20)\d{2}/);
+        var courseYear = yearMatch ? parseInt(yearMatch[0], 10) : null;
+        if (courseYear && courseYear !== CONFIG.targetYear) continue;
         
         // Col 0: 项目名称 (with link)
-        var nameEl = cells[0].querySelector('a');
-        var name = nameEl ? nameEl.textContent.trim() : '';
+        var nameCell = cells[nameIndex] || cells[0];
+        var nameEl = nameCell.querySelector('a');
+        var name = nameEl ? nameEl.textContent.trim() : (nameCell.textContent || '').trim();
         var link = nameEl ? nameEl.href : '';
+        if (!name) continue;
         
         // Col 2: 学分类型
-        var creditText = cells.length >= 3 ? (cells[2].textContent || '').trim() : '';
+        var creditCell = cells[creditIndex] || cells[2] || cells[0];
+        var creditText = (creditCell.textContent || '').trim();
         var cm = creditText.match(/([\d.]+)\s*学分/) || creditText.match(/([\d.]+)分/);
+        if (!cm) cm = rowText.match(/([\d.]+)\s*学分/);
         var credit = cm ? parseFloat(cm[1]) : 0;
-        if (credit === 0) credit = 1;
+        if (!Number.isFinite(credit) || credit <= 0) credit = 1;
         var isPublic = creditText.indexOf('公需') >= 0 || name.indexOf('公需') >= 0;
         
         // Col 3: 学习状态
-        var status = isStudyInfo ? (cells[3].textContent || '').trim() : '未学习';
+        var statusCell = cells[statusIndex] || cells[3];
+        var status = isStudyInfo && statusCell ? (statusCell.textContent || '').replace(/\s+/g, '').trim() : '未学习';
         if (!isStudyInfo && cells.length >= 4) {
           var btn0 = cells[3].querySelector('input[type="button"], button');
           if (btn0) {
@@ -593,23 +669,32 @@ var VueCourseScanner = {
         
         // Col 6: 学习进度 (e.g. "7/7", "0/12", "3/5")
         var progress = '';
-        if (cells.length >= 7) progress = (cells[6].textContent || '').trim();
+        if (cells[progressIndex]) progress = (cells[progressIndex].textContent || '').trim();
+        if (!/\d+\s*\/\s*\d+/.test(progress)) {
+          var rowProgress = rowText.match(/\d+\s*\/\s*\d+/);
+          progress = rowProgress ? rowProgress[0] : '';
+        }
         
         // Col 7: 操作 (button text: "申请证书"/"继续学习" or empty)
         var action = '';
-        if (cells.length >= 8) {
-          var actionBtn = cells[7].querySelector('input[type="button"], button');
+        var actionCell = cells[actionIndex] || cells[cells.length - 1];
+        if (actionCell) {
+          var actionBtn = actionCell.querySelector('input[type="button"], input[type="submit"], button, a');
           if (actionBtn) action = (actionBtn.value || actionBtn.textContent || '').trim();
         }
         
         // Extract action URL from button onclick (e.g. apply_certificate.aspx or course.aspx)
         var actionUrl = '';
-        if (cells.length >= 8) {
-          var actionBtn2 = cells[7].querySelector('input[type="button"], button');
+        if (actionCell) {
+          var actionBtn2 = actionCell.querySelector('input[type="button"], input[type="submit"], button, a');
           if (actionBtn2) {
             var oc = actionBtn2.getAttribute('onclick') || '';
-            var ocMatch = oc.match(/location\.href="([^"]+)"/) || oc.match(/location\.href='([^']+)'/);
-            if (ocMatch) actionUrl = ocMatch[1];
+            var ocMatch = oc.match(/(?:location\.href\s*=|window\.open\s*\()\s*["']([^"']+)["']/);
+            actionUrl = actionBtn2.getAttribute('href') || actionBtn2.getAttribute('data-url') || (ocMatch ? ocMatch[1] : '');
+            if (/^javascript:/i.test(actionUrl)) actionUrl = '';
+            if (actionUrl) {
+              try { actionUrl = new URL(actionUrl, location.href).href; } catch(eu) {}
+            }
           }
         }
         
@@ -638,6 +723,7 @@ var VueCourseScanner = {
         
         result.courses.push({
           name: name,
+          year: courseYear,
           credit: credit,
           status: status,
           isPublic: isPublic,
@@ -691,6 +777,7 @@ var CreditPlanner = {
         var pPct = pTotal > 0 ? Math.round(pDone / pTotal * 100) : 0;
         return {
           name: c.name,
+          year: c.year || null,
           link: c.link,
           credit: c.credit,
           status: c.status,
@@ -709,7 +796,8 @@ var CreditPlanner = {
       });
     } else {
       // 备用: 从Vue SPA课程卡片扫描
-      courses = VueCourseScanner.scanFromVueSPA();
+      VueCourseScanner.scanFromVueSPA();
+      courses = VueCourseScanner.getDiscoveredCourses();
     }
     
     var result = {
@@ -736,8 +824,9 @@ var CreditPlanner = {
     
     result.publicRemaining = Math.max(0, result.publicTarget - result.publicEarned);
     result.otherRemaining = Math.max(0, result.otherTarget - result.otherEarned);
-    result.totalRemaining = Math.max(0, result.targetTotal - result.totalEarned);
-    result.met = result.totalEarned >= result.targetTotal;
+    result.totalRemaining = result.publicRemaining + result.otherRemaining;
+    result.met = result.totalEarned >= result.targetTotal &&
+      result.publicEarned >= result.publicTarget && result.otherEarned >= result.otherTarget;
     
     log('[学分] 已获: ' + result.totalEarned + '/' + result.targetTotal +
         ' (公需' + result.publicEarned + '/' + result.publicTarget +
@@ -756,55 +845,40 @@ var CreditPlanner = {
       return null;
     }
     
-    // 从未完成课程中筛选 (包括'学习完毕'但未申请证书的)
+    // 只选择有真实入口且能继续处理的课程；绝不再用课程名称伪造 cid。
     var unfinished = analysis.courses.filter(function(c) {
-      return !c.completed && !c.needsCertificate; // Skip 已申请 and 申请证书(needs 卡密)
+      return !c.completed && !!(c.actionUrl || c.link);
     });
-    
-    // v4.1.0: 证书申请需要卡密, 不自动操作, 跳过这些课程
-    // 选课优先级: 高进度 > 低进度, 剩余课件少的优先
-    // v4.0.0: Smart selection based on progress
+
     unfinished.sort(function(a, b) {
-      // v4.1.0: 证书课程已过滤, 排序按进度和剩余课件
-      // 1. needsExam = need to take exam (学习完毕 but no 申请证书 button)
+      var aCert = a.needsCertificate ? 0 : 1;
+      var bCert = b.needsCertificate ? 0 : 1;
+      if (aCert !== bCert) return aCert - bCert;
       var aExam = a.needsExam ? 0 : 1;
       var bExam = b.needsExam ? 0 : 1;
       if (aExam !== bExam) return aExam - bExam;
-      
-      // 2. Higher progress % = closer to completion
       var aPct = a.progressPct || 0;
       var bPct = b.progressPct || 0;
       if (aPct !== bPct) return bPct - aPct;
-      
-      // 3. Fewer remaining coursewares = faster to finish
       var aRem = (a.progressTotal || 999) - (a.progressDone || 0);
       var bRem = (b.progressTotal || 999) - (b.progressDone || 0);
       if (aRem !== bRem) return aRem - bRem;
-      
-      // 4. Higher credit = better value
-      return b.credit - a.credit;
+      if (a.credit !== b.credit) return b.credit - a.credit;
+      return String(a.name).localeCompare(String(b.name), 'zh-CN');
     });
-    
-    // 优先公需课 (within same priority tier)
-    unfinished.sort(function(a, b) {
-      if (a.isPublic !== b.isPublic) return a.isPublic ? -1 : 1;
-      return 0;
-    });
-    
+
     var tasks = [];
     var acc = 0;
     var needPublic = analysis.publicRemaining;
     var needOther = analysis.otherRemaining;
-    var needTotal = analysis.totalRemaining;
-    
-    for (var i = 0; i < unfinished.length && acc < needTotal; i++) {
-      var c = unfinished[i];
-      if (c.isPublic && needPublic <= 0) continue;
-      if (!c.isPublic && needOther <= 0) continue;
-      
+    var selected = [];
+
+    function addTask(c) {
+      if (selected.indexOf(c) >= 0) return;
+      selected.push(c);
       tasks.push({
         name: c.name,
-        url: c.actionUrl || c.link || ('/pages/course.aspx?cid=' + c.name),
+        url: c.actionUrl || c.link,
         credit: c.credit,
         status: c.status,
         isPublic: c.isPublic,
@@ -816,16 +890,27 @@ var CreditPlanner = {
         progressPct: c.progressPct || 0,
         action: c.action || ''
       });
-      
       acc += c.credit;
-      if (c.isPublic) needPublic -= c.credit;
-      else needOther -= c.credit;
     }
+
+    for (var pi = 0; pi < unfinished.length && needPublic > 0; pi++) {
+      if (!unfinished[pi].isPublic) continue;
+      addTask(unfinished[pi]);
+      needPublic = Math.max(0, needPublic - unfinished[pi].credit);
+    }
+    for (var oi = 0; oi < unfinished.length && needOther > 0; oi++) {
+      if (unfinished[oi].isPublic) continue;
+      addTask(unfinished[oi]);
+      needOther = Math.max(0, needOther - unfinished[oi].credit);
+    }
+
+    var needTotal = analysis.totalRemaining;
     
     var plan = {
       tasks: tasks,
       total: acc,
       need: needTotal,
+      remainingAfterPlan: needPublic + needOther,
       createdAt: Date.now()
     };
     
@@ -877,6 +962,105 @@ var CreditPlanner = {
 // 流程: 课程列表 → 课程详情 → 课件页面 → 问卷 → 视频 → 考试 → 结果 → 下一课
 // ═══════════════════════════════════════════════════════════════
 
+function fillSurveyForm() {
+  var root = document.querySelector('#divQuestion, #fieldset1, form') || document.body;
+  var answered = 0;
+  var groups = {};
+  Array.from(root.querySelectorAll('input[type="radio"]')).forEach(function(input, index) {
+    if (input.disabled) return;
+    var key = input.name || ('radio-' + index);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(input);
+  });
+  Object.keys(groups).forEach(function(key) {
+    var options = groups[key];
+    if (options.some(function(input) { return input.checked; })) return;
+    var choice = options[Math.floor((options.length - 1) / 2)];
+    if (choice) { choice.click(); answered++; }
+  });
+
+  var checkboxGroups = {};
+  Array.from(root.querySelectorAll('input[type="checkbox"]')).forEach(function(input, index) {
+    if (input.disabled || input.id === 'agree1') return;
+    var key = input.name || ('checkbox-' + index);
+    if (!checkboxGroups[key]) checkboxGroups[key] = [];
+    checkboxGroups[key].push(input);
+  });
+  Object.keys(checkboxGroups).forEach(function(key) {
+    var options = checkboxGroups[key];
+    if (!options.some(function(input) { return input.checked; }) && options[0]) {
+      options[0].click();
+      answered++;
+    }
+  });
+
+  Array.from(root.querySelectorAll('select')).forEach(function(select) {
+    if (select.disabled || select.value) return;
+    var option = Array.from(select.options).find(function(item) { return item.value && !item.disabled; });
+    if (option) {
+      select.value = option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      answered++;
+    }
+  });
+  Array.from(root.querySelectorAll('textarea, input[type="text"]')).forEach(function(input) {
+    if (input.disabled || input.value || /验证码|手机|姓名|身份证/.test(input.placeholder || '')) return;
+    input.value = '无';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    answered++;
+  });
+
+  var submit = root.querySelector('#ctlNext, #submit_button, #btnSubmit, #divSubmit .btn_submit, input[type="submit"], button[type="submit"], .submitbutton, a.submit');
+  if (!submit) {
+    var candidates = root.querySelectorAll('button, input[type="button"], a');
+    for (var ci = 0; ci < candidates.length; ci++) {
+      var text = (candidates[ci].textContent || candidates[ci].value || '').replace(/\s+/g, ' ').trim();
+      if (/^(提交|完成|下一步|立即提交|提交问卷)$/.test(text)) { submit = candidates[ci]; break; }
+    }
+  }
+  return { answered: answered, submit: submit };
+}
+
+function findInteractiveAction() {
+  var scopes = [
+    document.querySelector('.case-main, .case-content, .study-main, .content, #app, #root'),
+    document.body
+  ].filter(Boolean);
+  var startTexts = ['查看病例', '开始学习', '进入病例', '继续学习'];
+  var nextTexts = ['下一步', '继续', '下一页', '完成学习', '完成', '提交'];
+  var denyTexts = ['删除', '退出', '返回', '关闭', '取消', '重置', '上一页', '上一步'];
+  function normalize(text) { return String(text || '').replace(/\s+/g, '').trim(); }
+  function visible(el) {
+    if (!el) return false;
+    if (el.offsetWidth || el.offsetHeight || el.getClientRects().length) return true;
+    var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+    return !!(style && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0');
+  }
+  function candidateElements(root) {
+    return Array.from(root.querySelectorAll('button, a[href], input[type="button"], input[type="submit"], [role="button"], .btn, [class*="button"]'));
+  }
+  for (var s = 0; s < scopes.length; s++) {
+    var buttons = candidateElements(scopes[s]).filter(function(el) {
+      if (!visible(el) || !isElementEnabled(el)) return false;
+      var text = normalize(el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || el.title);
+      if (!text || denyTexts.indexOf(text) >= 0) return false;
+      return startTexts.indexOf(text) >= 0 || nextTexts.indexOf(text) >= 0;
+    });
+    if (buttons.length) {
+      buttons.sort(function(a, b) {
+        var at = normalize(a.innerText || a.textContent || a.value || a.getAttribute('aria-label') || a.title);
+        var bt = normalize(b.innerText || b.textContent || b.value || b.getAttribute('aria-label') || b.title);
+        var ap = startTexts.indexOf(at) >= 0 ? 0 : 1;
+        var bp = startTexts.indexOf(bt) >= 0 ? 0 : 1;
+        return ap - bp;
+      });
+      return buttons[0];
+    }
+  }
+  return null;
+}
+
 var SmartEngine = {
   _running: false,
   _currentPage: '',
@@ -921,7 +1105,8 @@ var SmartEngine = {
       return;
     }
     this._running = true;
-    window.__HY_paused = false; // v4.2.0: Clear pause flag
+    window.__HY_paused = false;
+    Store.s(CONFIG.keys.paused, false);
     log('[引擎] === 开始执行 ===');
     this.updateUI('navigating', '正在启动...');
     
@@ -979,6 +1164,8 @@ var SmartEngine = {
           // No courses need action from study record - go to CME index to find new courses
           log('[引擎] 学习记录中的课程无需处理, 跳转到课程列表寻找新课程...');
           Store.s('__HY_needMoreCourses', true);
+          Store.d(CONFIG.keys.discoveredCourses);
+          self._running = false;
           safeNavigate('/cme/index');
         }
       } else {
@@ -993,7 +1180,8 @@ var SmartEngine = {
   // 暂停
   stop: function() {
     this._running = false;
-    window.__HY_paused = true; // v4.2.0: Global pause flag
+    window.__HY_paused = true;
+    Store.s(CONFIG.keys.paused, true);
     // Clear any pending timers
     if (window.__HY_videoCheck) { clearInterval(window.__HY_videoCheck); window.__HY_videoCheck = null; }
     if (window.__HY_caseTimer) { clearInterval(window.__HY_caseTimer); window.__HY_caseTimer = null; }
@@ -1021,7 +1209,7 @@ var SmartEngine = {
       // 检查是否在执行过程中 (跨页面导航后恢复)
       var plan = Store.g(HY_PLAN_KEY, null);
       var idx = Store.g(HY_PLAN_IDX, 0);
-      if (plan && plan.tasks && idx > 0 && idx < plan.tasks.length) {
+      if (plan && plan.tasks && idx >= 0 && idx < plan.tasks.length && Store.g(CONFIG.keys.running, false)) {
         // 有未完成计划, 恢复执行
         log('[引擎] 检测到未完成计划, 恢复执行');
         this._running = true;
@@ -1094,11 +1282,19 @@ var SmartEngine = {
       // 扫描课件列表
       var coursewares = VueCourseScanner.scanFromCourseDetail();
       if (coursewares.length === 0) {
-        log('[引擎] 课程详情: 无课件, 标记任务完成');
-        self.nextTask();
-        self._running = false;
+        var emptyRetries = Store.g('HY_EmptyCoursewareRetries', 0) + 1;
+        Store.s('HY_EmptyCoursewareRetries', emptyRetries);
+        log('[引擎] 课程详情尚未发现课件 (' + emptyRetries + '/5)');
+        if (emptyRetries < 5) {
+          setTimeout(function() { location.reload(); }, 3000);
+        } else {
+          Store.d('HY_EmptyCoursewareRetries');
+          log('[引擎] 课程详情连续为空, 返回学习记录重新核验，未把任务误标为完成');
+          safeNavigate('/pages/study_info_list.aspx');
+        }
         return;
       }
+      Store.d('HY_EmptyCoursewareRetries');
       
       // 查找第一个未完成的课件
       var found = null;
@@ -1186,26 +1382,10 @@ var SmartEngine = {
     setTimeout(function() {
       if (!self._running) return;
       
-      // 问卷星问卷: 查找提交/完成按钮
-      var m = location.href.match(/sojumpparm=[^|]*\|[^|]*\|[^|]*\|([^&]+)/);
-      if (m) {
-        var videoUrl = decodeURIComponent(m[1]);
-        log('[引擎] 从sojumpparm提取视频地址, 跳过问卷');
-        safeNavigate(videoUrl);
-        return;
-      }
-
-      var cwid = URL.getCWID();
-      if (cwid) {
-        log('[引擎] 直接访问polyv视频页');
-        safeNavigate('/course_ware/course_ware_polyv.aspx?cwid=' + cwid);
-        return;
-      }
-
-      var submitBtn = document.querySelector('#divSubmit .btn_submit, input[type="submit"], button[type="submit"], .submitbutton, a.submit');
-      if (submitBtn) {
-        log('[引擎] 提交问卷...');
-        submitBtn.click();
+      var survey = fillSurveyForm();
+      if (survey.submit) {
+        log('[引擎] 已填写 ' + survey.answered + ' 个问卷字段，提交问卷');
+        survey.submit.click();
         // 提交后等待重定向到视频
         setTimeout(function() {
           if (self._running) {
@@ -1213,8 +1393,8 @@ var SmartEngine = {
           }
         }, 5000);
       } else {
-        // 可能问卷不需要填写, 直接查找重定向
-        log('[引擎] 无提交按钮, 尝试直接进入视频');
+        // 页面本身没有问卷表单时，才使用站点提供的返回视频地址。
+        log('[引擎] 页面没有可提交问卷，读取站点返回地址');
         // URL中的sojumpparm参数包含视频地址
         var m = location.href.match(/sojumpparm=[^|]*\|[^|]*\|[^|]*\|([^&]+)/);
         if (m) {
@@ -1222,7 +1402,7 @@ var SmartEngine = {
           log('[引擎] 从sojumpparm找到视频地址');
           safeNavigate(videoUrl);
         } else {
-          // 尝试修改URL直接访问视频
+          // 兼容只携带 cwid 的过渡页。
           var cwid = URL.getCWID();
           if (cwid) {
             safeNavigate('/course_ware/course_ware_polyv.aspx?cwid=' + cwid);
@@ -1250,31 +1430,11 @@ var SmartEngine = {
       caseCheckCount++;
       
       try {
-        // Look for '查看病例' button or any clickable element to start
-        var startBtn = null;
-        var allEls = document.querySelectorAll('div, span, a, button, [class*="btn"]');
-        for (var i = 0; i < allEls.length; i++) {
-          var txt = (allEls[i].textContent || '').trim();
-          if (txt === '查看病例' || txt === '开始学习' || txt === '进入病例') {
-            startBtn = allEls[i];
-            break;
-          }
-        }
-        
-        if (startBtn && caseCheckCount <= 3) {
-          log('[引擎] 点击查看病例');
-          try { startBtn.click(); } catch(e) {}
-        }
-        
-        // Look for '下一步' / '继续' / '完成' buttons to progress through the case
-        var progressBtns = document.querySelectorAll('div, span, a, button, [class*="btn"]');
-        for (var j = 0; j < progressBtns.length; j++) {
-          var pt = (progressBtns[j].textContent || '').trim();
-          if (pt === '下一步' || pt === '继续' || pt === '完成' || pt === '下一页' || pt === '确认') {
-            try { progressBtns[j].click(); } catch(e) {}
-            log('[引擎] 互动病例: 点击 ' + pt);
-            break;
-          }
+        var action = findInteractiveAction();
+        if (action) {
+          var actionText = (action.innerText || action.textContent || action.value || action.getAttribute('aria-label') || action.title || '').trim();
+          try { action.click(); } catch(e) {}
+          log('[引擎] 互动病例: 点击 ' + actionText);
         }
         
         // Check if completed (redirect back or completion text)
@@ -1320,92 +1480,26 @@ var SmartEngine = {
     
     var self = this;
     var checkCount = 0;
-    var maxChecks = 600;
+    // 允许长课程持续运行；仅以连续无进展判定故障，不按固定 10 分钟误杀。
+    var maxChecks = 21600; // 6 hours
     var videoStarted = false;
     var videoAlreadyCompleted = false; // v3.8.1: shared flag for both setTimeout and checkTimer
+    var lastVideoTime = -1;
+    var stalledChecks = 0;
+    var recoveryKey = 'HY_VideoRecovery:' + (URL.getCWID() || URL.full.substring(0, 120));
     
-    // v4.2.0: 检测已完成的视频并跳过重新播放
-    // 网站 ban_history_time=on 导致视频重置到0, 但localStorage记录了
-    // 最大播放时间. 如果播放时间>0, 直接调用s2j_onPlayOver启用考试按钮
+    // 只信任网站给出的可进入考试状态或视频真实 ended 状态。
+    // 旧版按 localStorage >100 秒伪判完成并调用 s2j_onPlayOver，会造成服务端进度与页面不一致。
     setTimeout(function() {
       try {
         var videos = document.querySelectorAll('video');
-        var videoDur = videos.length > 0 ? videos[0].duration : 0;
-        
-        // 检查localStorage是否有播放记录 (key格式: uid+cwrid+coaid, 值=播放到的秒数)
-        var isAlreadyCompleted = false;
-        try {
-          var lsKeys = Object.keys(localStorage);
-          var cwid = URL.getCWID() || '';
-          log('[引擎] 检查视频完成: cwid=' + cwid.substring(0, 12));
-          for (var ki = 0; ki < lsKeys.length; ki++) {
-            if (lsKeys[ki].indexOf(cwid) >= 0 && lsKeys[ki].length > 30) {
-              var playTime = parseInt(localStorage.getItem(lsKeys[ki]));
-              // v4.2.0: 不依赖videoDur(启动时为0), 只要playTime>100秒就算已完成
-              // 因为正常视频至少几分钟, localStorage记录>100秒说明看过
-              if (!isNaN(playTime) && playTime > 100) {
-                isAlreadyCompleted = true;
-                videoAlreadyCompleted = true; // Set shared flag
-                log('[引擎] 检测到视频已完成(localStorage: ' + playTime + '秒)');
-                break;
-              }
-            }
-          }
-          // 如果没找到cwid匹配, 也检查页面脚本中的getMaxPlayTime
-          if (!isAlreadyCompleted) {
-            try {
-              if (typeof getMaxPlayTime === 'function') {
-                var maxTime = getMaxPlayTime();
-                if (maxTime > 100) {
-                  isAlreadyCompleted = true;
-                  videoAlreadyCompleted = true;
-                  log('[引擎] 检测到视频已完成(getMaxPlayTime: ' + maxTime + '秒)');
-                }
-              }
-            } catch(e2) {}
-          }
-        } catch(e) {}
-        
-        // 也检查视频元素本身是否已结束
-        if (!isAlreadyCompleted && videos.length > 0) {
-          var v0 = videos[0];
-          if (v0.duration > 0 && (v0.ended || v0.currentTime >= v0.duration - 3)) {
-            isAlreadyCompleted = true;
-            videoAlreadyCompleted = true; // Set shared flag
-            log('[引擎] 检测到视频已完成(视频元素: ended=' + v0.ended + ')');
-          }
-        }
-        
-        // v4.2.0: 如果jrks按钮存在但disabled, 也说明视频需要看(还没看完)
-        // 如果jrks按钮不存在或display=none, 说明还在加载, 等待
         var jrksCheck = document.getElementById('jrks');
-        if (jrksCheck && !isAlreadyCompleted) {
-          if (jrksCheck.hasAttribute('disabled')) {
-            // jrks disabled = video not finished yet, need to play
-            log('[引擎] jrks按钮disabled, 需要播放视频');
-          } else if (!jrksCheck.hasAttribute('disabled') && jrksCheck.style.display !== 'none') {
-            // jrks enabled = video already finished, go to exam
-            isAlreadyCompleted = true;
-            videoAlreadyCompleted = true;
-            log('[引擎] jrks按钮已启用, 视频已完成');
-          }
-        }
-        
-        if (isAlreadyCompleted) {
-          // 调用页面的s2j_onPlayOver回调启用考试按钮
-          log('[引擎] 调用s2j_onPlayOver启用考试按钮');
-          try {
-            if (typeof window.s2j_onPlayOver === 'function') {
-              window.s2j_onPlayOver();
-            }
-          } catch(e) {
-            log('[引擎] s2j_onPlayOver调用失败: ' + e.message);
-          }
-          // 不播放视频, 等待jrks按钮启用
+        if (jrksCheck && isElementEnabled(jrksCheck)) {
+          videoAlreadyCompleted = true;
+          log('[引擎] 网站已启用考试入口，无需重复播放');
           return;
         }
-        
-        // 视频未完成 - 正常播放
+
         for (var v = 0; v < videos.length; v++) {
           try { videos[v].muted = true; videos[v].volume = 0; } catch(e) {}
         }
@@ -1430,7 +1524,7 @@ var SmartEngine = {
       try {
         // 立即检查是否可进入考试(视频可能已完成)
         var jrksBtn = document.getElementById('jrks');
-        if (jrksBtn && jrksBtn.style.display !== 'none' && !jrksBtn.hasAttribute('disabled')) {
+        if (jrksBtn && isElementEnabled(jrksBtn)) {
           log('[引擎] 进入考试按钮已启用, 进入考试');
           clearInterval(checkTimer);
           var rawHref = jrksBtn.getAttribute('href') || '';
@@ -1444,9 +1538,17 @@ var SmartEngine = {
 
         killPopups();
         
-        var video = document.querySelector('video');
-        if (video) {
-          try { video.muted = true; video.volume = 0; } catch(e) {}
+          var video = document.querySelector('video');
+          if (video) {
+            try { video.muted = true; video.volume = 0; } catch(e) {}
+
+            if (video.currentTime > lastVideoTime + 0.2) {
+              lastVideoTime = video.currentTime;
+              stalledChecks = 0;
+              Store.d(recoveryKey);
+            } else if (!video.ended && !videoAlreadyCompleted) {
+              stalledChecks++;
+            }
           
           // v3.8.0: 检测已完成视频 (ban_history_time=on 导致视频重置到0)
           // 如果jrks按钮存在但disabled, 且视频在开头, 需要播放视频
@@ -1463,16 +1565,11 @@ var SmartEngine = {
             // v3.8.1: Don't play if video was already completed (localStorage check)
             // ban_history_time=on resets video to 0:00, but we know it was watched
             if (!videoStarted && !video.paused) { videoStarted = true; log('[引擎] 视频正在播放'); }
-            if (!videoStarted && video.paused && checkCount % 5 === 0) {
+            if (video.paused && !video.ended && checkCount % 3 === 0) {
               try { var p = video.play(); if(p&&p.then) p.catch(function(){}); } catch(e) {}
             }
-          } else {
-            // Video already completed but s2j_onPlayOver hasn't enabled jrks yet
-            // Try calling s2j_onPlayOver again
-            if (checkCount % 5 === 0) {
-              try { if (typeof window.s2j_onPlayOver === 'function') window.s2j_onPlayOver(); } catch(e) {}
-              log('[引擎] 等待考试按钮启用... (已完成视频)');
-            }
+          } else if (checkCount % 10 === 0) {
+            log('[引擎] 等待网站确认视频完成...');
           }
 
           var progress = video.duration > 0 ? (video.currentTime / video.duration) : 0;
@@ -1480,9 +1577,29 @@ var SmartEngine = {
             var remaining = video.duration > 0 ? Math.round(video.duration - video.currentTime) : 0;
             log('[引擎] 视频进度 ' + Math.round(progress * 100) + '% (剩余' + remaining + '秒)');
           }
+          if (stalledChecks === 120) {
+            log('[引擎] 视频连续 2 分钟无进展，尝试恢复播放器');
+            try { if (window.player && typeof window.player.j2s_resumeVideo === 'function') window.player.j2s_resumeVideo(); } catch(e) {}
+            try { if (window.cc_js_Player && typeof window.cc_js_Player.play === 'function') window.cc_js_Player.play(); } catch(e) {}
+            try { var rp = video.play(); if (rp && rp.catch) rp.catch(function(){}); } catch(e) {}
+          }
+          if (stalledChecks >= 300) {
+            clearInterval(checkTimer);
+            var recoveryCount = Store.g(recoveryKey, 0) + 1;
+            Store.s(recoveryKey, recoveryCount);
+            if (recoveryCount <= 3) {
+              log('[引擎] 视频连续 5 分钟无进展，重新加载页面恢复 (' + recoveryCount + '/3)');
+              location.reload();
+            } else {
+              log('[引擎] 视频多次恢复失败，返回学习记录核验，任务保持未完成');
+              Store.d(recoveryKey);
+              safeNavigate('/pages/study_info_list.aspx');
+            }
+            return;
+          }
           if (progress > 0.95 || (video.duration > 0 && video.currentTime >= video.duration - 5)) {
             var jrksFinal = document.getElementById('jrks');
-            if (jrksFinal && jrksFinal.style.display !== 'none' && !jrksFinal.hasAttribute('disabled')) {
+            if (jrksFinal && isElementEnabled(jrksFinal)) {
               clearInterval(checkTimer);
               log('[引擎] 视频播放完成! 进入考试');
               self._running = false;
@@ -1493,7 +1610,7 @@ var SmartEngine = {
                 try { jrksFinal.click(); } catch(e) {}
               }
               return;
-            } else if (jrksFinal && jrksFinal.style.display !== 'none' && jrksFinal.hasAttribute('disabled')) {
+            } else if (jrksFinal && !isElementEnabled(jrksFinal)) {
               if (checkCount % 10 === 0) {
                 log('[引擎] 视频已完成, 等待考试按钮启用...');
               }
@@ -1508,7 +1625,7 @@ var SmartEngine = {
           }
         } else {
           var jrksNoVideo = document.getElementById('jrks');
-          if (jrksNoVideo && jrksNoVideo.style.display !== 'none' && !jrksNoVideo.hasAttribute('disabled')) {
+          if (jrksNoVideo && isElementEnabled(jrksNoVideo)) {
             clearInterval(checkTimer);
             log('[引擎] 无视频元素, 进入考试');
             self._running = false;
@@ -1558,6 +1675,8 @@ var SmartEngine = {
     var self = this;
     var pageText = document.body ? document.body.innerText : '';
     var examFailed = pageText.indexOf('考试未通过') >= 0 || pageText.indexOf('未通过') >= 0;
+    var examPassed = pageText.indexOf('考试通过') >= 0 || pageText.indexOf('已通过') >= 0 ||
+      pageText.indexOf('完成项目学习可以申请学分') >= 0 || pageText.indexOf('考试合格') >= 0;
     if (examFailed) {
       log('[引擎] 考试未通过, 记录错误答案, 准备重试');
       try {
@@ -1582,6 +1701,13 @@ var SmartEngine = {
       } else { safeNavigate('/pages/study_info_list.aspx'); }
       return;
     }
+    if (!examPassed) {
+      log('[引擎] 无法确认考试是否通过，不推进任务；返回学习记录核验');
+      doResult();
+      setTimeout(function() { safeNavigate('/pages/study_info_list.aspx'); }, 3000);
+      return;
+    }
+    Store.d('HY_examTries');
     doResult(function() {
       self.nextTask();
       self._running = false;
@@ -1601,25 +1727,110 @@ var SmartEngine = {
   
   // 处理申请证书页 (apply_certificate.aspx)
   handleCertificateApply: function() {
-    log('[引擎] 申请证书页 - 需要卡密, 跳过此课程');
-    log('[引擎] 证书申请需要卡密(card key), 不自动操作');
+    log('[引擎] 申请证书页 - 填写评价并申请学分');
     var self = this;
     setTimeout(function() {
-      self.nextTask();
-      self._running = false;
-      setTimeout(function() {
+      try {
+        var pageText = document.body ? document.body.innerText : '';
+        if (/申请成功|已申请|证书已申请/.test(pageText)) {
+          log('[引擎] 证书申请成功，返回学习记录核验');
+          self.nextTask();
+          safeNavigate('/pages/study_info_list.aspx');
+          return;
+        }
+
+        var radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        var groups = {};
+        radios.forEach(function(input) {
+          if (!groups[input.name]) groups[input.name] = [];
+          groups[input.name].push(input);
+        });
+        Object.keys(groups).forEach(function(name) {
+          var first = groups[name].filter(isElementEnabled)[0] || groups[name][0];
+          if (first && !groups[name].some(function(input) { return input.checked; })) {
+            first.click();
+          }
+        });
+
+        var checkedBoxes = 0;
+        Array.from(document.querySelectorAll('input[type="checkbox"]')).forEach(function(input) {
+          if (checkedBoxes < 2 && isElementEnabled(input) && !input.checked) {
+            input.click();
+            checkedBoxes++;
+          } else if (input.checked) {
+            checkedBoxes++;
+          }
+        });
+
+        Array.from(document.querySelectorAll('textarea')).forEach(function(textarea) {
+          if (!textarea.value) {
+            textarea.value = '课程内容实用，讲解清晰，收获较大。';
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            textarea.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        });
+
+        var buttons = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button, a'));
+        var applyBtn = buttons.find(function(btn) {
+          var text = (btn.value || btn.innerText || btn.textContent || '').trim();
+          return isElementEnabled(btn) && /是的.*申请|我申请|确认申请|去确认|提交/.test(text) && !/不|取消|返回/.test(text);
+        });
+        if (applyBtn) {
+          log('[引擎] 点击证书申请按钮: ' + (applyBtn.value || applyBtn.innerText || '').trim());
+          applyBtn.click();
+          setTimeout(function() {
+            var okBtn = document.getElementById('btn_preapply_tip_ok') ||
+              Array.from(document.querySelectorAll('input[type="button"], button, a')).find(function(btn) {
+                var text = (btn.value || btn.innerText || btn.textContent || '').trim();
+                return isElementEnabled(btn) && /我知道了|确定|确认/.test(text);
+              });
+            if (okBtn) okBtn.click();
+            setTimeout(function() { safeNavigate('/pages/study_info_list.aspx'); }, 3000);
+          }, 2000);
+        } else {
+          log('[引擎] 未找到证书申请按钮，返回学习记录核验');
+          safeNavigate('/pages/study_info_list.aspx');
+        }
+      } catch(e) {
+        log('[引擎] 证书申请处理错误: ' + e.message);
+        safeNavigate('/pages/study_info_list.aspx');
+      }
+    }, 1000);
+  },
+
+  handleCardSelect: function() {
+    log('[引擎] 培训卡选择页');
+    var self = this;
+    setTimeout(function() {
+      var text = document.body ? document.body.innerText : '';
+      var noCards = /可用培训卡\s*\(0\)|这里空空的|没有可用|去绑卡\/购卡/.test(text);
+      if (noCards) {
+        log('[引擎] 当前无可用培训卡，跳过本证书申请任务，继续后续课程');
+        self.nextTask();
         var nextTask = self.getCurrentTask();
         if (nextTask && nextTask.url) {
-          log('[引擎] 跳过证书申请, 进入下一个任务: ' + nextTask.name);
           self._running = true;
           safeNavigate(nextTask.url);
         } else {
-          log('[引擎] 所有任务完成, 返回学习记录页');
           safeNavigate('/pages/study_info_list.aspx');
         }
-      }, 2000);
-    }, 1000);
+        return;
+      }
+      var confirmBtn = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button, a')).find(function(btn) {
+        var btnText = (btn.value || btn.innerText || btn.textContent || '').trim();
+        return isElementEnabled(btn) && /确认使用|确认|提交/.test(btnText);
+      });
+      if (confirmBtn) {
+        log('[引擎] 使用可用培训卡申请证书');
+        confirmBtn.click();
+        setTimeout(function() { safeNavigate('/pages/study_info_list.aspx'); }, 4000);
+      } else {
+        log('[引擎] 未找到培训卡确认按钮，返回学习记录核验');
+        safeNavigate('/pages/study_info_list.aspx');
+      }
+    }, 1500);
   },
+
   // 更新UI状态
   updateUI: function(state, label) {
     try {
@@ -1647,6 +1858,20 @@ var SmartEngine = {
     return true;
   }
 };
+
+// _running 必须跨页面持久化；普通对象字段在每次导航后都会重置，旧版本因此经常首课即停。
+(function persistEngineRunningState() {
+  var running = !!Store.g(CONFIG.keys.running, false);
+  Object.defineProperty(SmartEngine, '_running', {
+    configurable: false,
+    enumerable: true,
+    get: function() { return running; },
+    set: function(value) {
+      running = !!value;
+      Store.s(CONFIG.keys.running, running);
+    }
+  });
+})();
 
 // ═══════════════════════════════════════════════════════════════
 // 7. 考试助手模块 (Exam Helper)
@@ -1683,59 +1908,288 @@ function doExam() {
 
 // 查找题目 - 支持多种DOM结构
 function findQuestions() {
-  // 策略1: table.tablestyle (传统ASP.NET)
-  var tables = document.querySelectorAll("table.tablestyle, table[class*='tablestyle']");
-  if (tables.length > 0) return tables;
-  
-  // 策略2: 含radio/checkbox的表格
-  var radioTables = document.querySelectorAll("table:has(input[type='radio']), table:has(input[type='checkbox'])");
-  if (radioTables.length > 0) return radioTables;
-  
-  // 策略3: 含radio/checkbox的div容器
-  var radioContainers = document.querySelectorAll("div:has(input[type='radio']), div:has(input[type='checkbox'])");
-  if (radioContainers.length > 0) {
-    // 过滤只保留父级容器
-    var containers = [];
-    var seen = new Set();
-    for (var i = 0; i < radioContainers.length; i++) {
-      var c = radioContainers[i];
-      // 检查是否有子容器也包含radio
-      var hasChildWithRadio = false;
-      var children = c.querySelectorAll(":scope > div");
-      for (var j = 0; j < children.length; j++) {
-        if (children[j].querySelector('input[type="radio"], input[type="checkbox"]')) {
-          hasChildWithRadio = true;
-          break;
-        }
-      }
-      if (!hasChildWithRadio && !seen.has(c)) {
-        seen.add(c);
-        containers.push(c);
-      }
+  var explicit = document.querySelectorAll(
+    "table.tablestyle, .test > table, [data-question-id], .question-item, .exam-item"
+  );
+  var explicitQuestions = Array.from(explicit).filter(function(el) {
+    return el.querySelectorAll("input[type='radio'], input[type='checkbox']").length >= 2;
+  });
+  if (explicitQuestions.length > 0) return explicitQuestions;
+
+  // 回退按 input.name 分组，并寻找只包含该题选项的最小祖先，避免旧版把每个选项 div 当作一道题。
+  var inputs = Array.from(document.querySelectorAll("input[type='radio'], input[type='checkbox']"))
+    .filter(function(input) { return !input.disabled; });
+  var groups = {};
+  inputs.forEach(function(input, index) {
+    var key = input.name || ('__unnamed_' + index);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(input);
+  });
+
+  var result = [];
+  Object.keys(groups).forEach(function(name) {
+    var members = groups[name];
+    if (members.length < 2) return;
+    var node = members[0].parentElement;
+    var best = null;
+    while (node && node !== document.body) {
+      var descendants = Array.from(node.querySelectorAll("input[type='radio'], input[type='checkbox']"));
+      var uniqueNames = {};
+      descendants.forEach(function(input) { uniqueNames[input.name || '__unnamed'] = true; });
+      var sameGroupCount = descendants.filter(function(input) { return input.name === members[0].name; }).length;
+      if (sameGroupCount === members.length && Object.keys(uniqueNames).length === 1) best = node;
+      if (descendants.length > members.length || Object.keys(uniqueNames).length > 1) break;
+      node = node.parentElement;
     }
-    if (containers.length > 0) return containers;
-  }
-  
-  // 策略4: 直接找所有radio input的父容器
-  var radios = document.querySelectorAll("input[type='radio'], input[type='checkbox']");
-  if (radios.length > 0) {
-    var containers2 = [];
-    var seen2 = new Set();
-    for (var ri = 0; ri < radios.length; ri++) {
-      var parent = radios[ri].closest("table, div[class*='item'], div[class*='q'], li, fieldset");
-      if (parent && !seen2.has(parent)) {
-        seen2.add(parent);
-        containers2.push(parent);
-      }
-    }
-    if (containers2.length > 0) {
-      // 分组: 将同一父容器下的选项归为一题
-      return containers2;
-    }
-  }
-  
-  return [];
+    if (!best) best = members[0].closest('table, fieldset, li, .question, .item') || members[0].parentElement;
+    if (best && result.indexOf(best) === -1) result.push(best);
+  });
+  return result;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 3.1 登录与图形验证码
+// 账号密码只保存在 Tampermonkey 的 GM 存储，不写入源码、日志或页面 localStorage。
+// ═══════════════════════════════════════════════════════════════
+var LoginController = {
+  _worker: null,
+  _busy: false,
+  _attempts: 0,
+
+  getCredentials: function() {
+    var saved = Store.g(CONFIG.keys.credentials, null);
+    if (!saved || typeof saved !== 'object') return null;
+    return {
+      username: String(saved.username || ''),
+      password: String(saved.password || ''),
+      autoLogin: saved.autoLogin !== false
+    };
+  },
+
+  saveCredentials: function(username, password, autoLogin) {
+    Store.s(CONFIG.keys.credentials, {
+      username: String(username || '').trim(),
+      password: String(password || ''),
+      autoLogin: autoLogin !== false,
+      updatedAt: Date.now()
+    });
+  },
+
+  revealPasswordLogin: function() {
+    var more = document.getElementById('show_type_more');
+    if (more && more.offsetParent !== null) more.click();
+    var passwordTab = document.getElementById('type_pwd');
+    if (passwordTab) passwordTab.click();
+  },
+
+  setNativeValue: function(input, value) {
+    if (!input) return;
+    input.focus();
+    // 网站用 input 事件维护闭包 realValue 和隐藏字段，必须先清空再逐次触发。
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  },
+
+  preprocessCaptcha: function(img) {
+    var scale = 4;
+    var canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, img.naturalWidth || img.width || 100) * scale;
+    canvas.height = Math.max(1, img.naturalHeight || img.height || 46) * scale;
+    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    var image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    var data = image.data;
+    for (var i = 0; i < data.length; i += 4) {
+      var gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      var value = gray < 175 ? 0 : 255;
+      data[i] = data[i + 1] = data[i + 2] = value;
+      data[i + 3] = 255;
+    }
+    ctx.putImageData(image, 0, 0);
+    return canvas;
+  },
+
+  recognizeCaptcha: async function(img) {
+    if (!img) throw new Error('未找到验证码图片');
+    if (!img.complete || !img.naturalWidth) {
+      await new Promise(function(resolve, reject) {
+        var timer = setTimeout(function() { reject(new Error('验证码加载超时')); }, 10000);
+        img.addEventListener('load', function() { clearTimeout(timer); resolve(); }, { once: true });
+        img.addEventListener('error', function() { clearTimeout(timer); reject(new Error('验证码加载失败')); }, { once: true });
+      });
+    }
+    if (typeof Tesseract === 'undefined' || !Tesseract.createWorker) {
+      throw new Error('OCR 组件未加载');
+    }
+    if (!this._worker) {
+      log('[登录] 首次初始化本地 OCR...');
+      this._worker = await Tesseract.createWorker('eng', 1, {
+        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+        langPath: 'https://tessdata.projectnaptha.com/4.0.0_fast',
+        workerBlobURL: true,
+        logger: function(message) {
+          if (message && message.status === 'recognizing text' && message.progress >= 0.99) {
+            log('[登录] OCR 识别完成');
+          }
+        }
+      });
+      await this._worker.setParameters({
+        tessedit_pageseg_mode: Tesseract.PSM ? Tesseract.PSM.SINGLE_LINE : '7',
+        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+        preserve_interword_spaces: '0'
+      });
+    }
+    var canvas = this.preprocessCaptcha(img);
+    var result = await this._worker.recognize(canvas);
+    var text = String(result && result.data ? result.data.text : '')
+      .replace(/[^0-9A-Za-z]/g, '').trim();
+    if (text.length < 4 || text.length > 6) {
+      throw new Error('OCR 结果长度异常');
+    }
+    return text;
+  },
+
+  refreshCaptcha: function() {
+    var img = document.getElementById('yzm_img');
+    if (img) img.src = '/secure/CheckCode.aspx?r=' + Math.random();
+  },
+
+  getLoginErrorText: function() {
+    var selectors = [
+      '.layui-layer-content', '.layui-layer-dialog', '.el-message', '.ant-message',
+      '.toast', '.message', '.error', '.tips', '.login_tips'
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var nodes = document.querySelectorAll(selectors[i]);
+      for (var j = 0; j < nodes.length; j++) {
+        if (!nodes[j].offsetWidth && !nodes[j].offsetHeight && !nodes[j].getClientRects().length) continue;
+        var text = (nodes[j].innerText || nodes[j].textContent || '').trim();
+        if (/验证码|用户名|密码|账号|错误|失败|不存在|锁定/.test(text)) return text;
+      }
+    }
+    return '';
+  },
+
+  shouldRetryLogin: function(errorText) {
+    if (!errorText) return true;
+    if (/验证码/.test(errorText)) return true;
+    if (/用户名|账号|密码|不存在|锁定/.test(errorText)) return false;
+    return true;
+  },
+
+  fillAndSubmit: async function(credentials) {
+    if (this._busy) return;
+    this._busy = true;
+    try {
+      this.revealPasswordLogin();
+      var username = document.getElementById('txt_user_name');
+      var password = document.getElementById('txt_user_pwd');
+      var captchaInput = document.getElementById('txt_img_code');
+      var captchaImage = document.getElementById('yzm_img');
+      var agreement = document.getElementById('agree1');
+      var submit = document.querySelector('.btn_login[data-login-type="1"]');
+      if (!username || !password || !captchaInput || !captchaImage || !agreement || !submit) {
+        throw new Error('登录表单尚未加载完整');
+      }
+      this.setNativeValue(username, credentials.username);
+      this.setNativeValue(password, credentials.password);
+      var realPassword = document.getElementById('txt_user_pwd_real');
+      if (realPassword) this.setNativeValue(realPassword, credentials.password);
+      if (!agreement.checked) {
+        agreement.checked = true;
+        agreement.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      var code = await this.recognizeCaptcha(captchaImage);
+      this.setNativeValue(captchaInput, code);
+      this._attempts++;
+      log('[登录] 已填写账号与验证码，提交第 ' + this._attempts + ' 次登录');
+      submit.click();
+      var self = this;
+      setTimeout(function() {
+        if (location.pathname.toLowerCase().indexOf('/secure/login') >= 0 && self._attempts < 5) {
+          var errorText = self.getLoginErrorText();
+          if (!self.shouldRetryLogin(errorText)) {
+            log('[登录] 服务端拒绝账号密码，停止自动重试：' + errorText);
+            return;
+          }
+          log('[登录] 页面仍在登录页，刷新验证码后重试' + (errorText ? '：' + errorText : ''));
+          self.refreshCaptcha();
+          setTimeout(function() { self.fillAndSubmit(credentials); }, 1800);
+        }
+      }, 6500);
+    } catch (error) {
+      log('[登录] ' + error.message);
+      if (this._attempts < 5) {
+        this.refreshCaptcha();
+        var self = this;
+        setTimeout(function() { self._busy = false; self.fillAndSubmit(credentials); }, 2500);
+        return;
+      }
+    } finally {
+      this._busy = false;
+    }
+  },
+
+  createSetupPanel: function() {
+    if (document.getElementById('HY_loginSetup')) return;
+    var saved = this.getCredentials() || { username: '', password: '', autoLogin: true };
+    var panel = document.createElement('section');
+    panel.id = 'HY_loginSetup';
+    panel.style.cssText = 'position:fixed;right:18px;top:18px;z-index:2147483647;width:290px;padding:14px;' +
+      'background:#102a36;color:#fff;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.3);font:13px/1.5 sans-serif';
+    var title = document.createElement('strong');
+    title.textContent = '华医助手 · 自动登录设置';
+    panel.appendChild(title);
+    function field(type, placeholder, value) {
+      var input = document.createElement('input');
+      input.type = type;
+      input.placeholder = placeholder;
+      input.value = value || '';
+      input.style.cssText = 'display:block;box-sizing:border-box;width:100%;margin-top:9px;padding:8px;border:1px solid #54717d;border-radius:5px';
+      panel.appendChild(input);
+      return input;
+    }
+    var userInput = field('text', '用户名/手机号', saved.username);
+    var passwordInput = field('password', '密码', saved.password);
+    var autoLabel = document.createElement('label');
+    autoLabel.style.cssText = 'display:block;margin:9px 0';
+    var autoInput = document.createElement('input');
+    autoInput.type = 'checkbox';
+    autoInput.checked = saved.autoLogin !== false;
+    autoLabel.appendChild(autoInput);
+    autoLabel.appendChild(document.createTextNode(' 保存后自动识别验证码并登录'));
+    panel.appendChild(autoLabel);
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = '保存并登录';
+    button.style.cssText = 'width:100%;padding:9px;border:0;border-radius:5px;background:#19a7ce;color:white;cursor:pointer';
+    var self = this;
+    button.onclick = function() {
+      var creds = { username: userInput.value.trim(), password: passwordInput.value, autoLogin: autoInput.checked };
+      if (!creds.username || !creds.password) { log('[登录] 账号或密码为空'); return; }
+      self.saveCredentials(creds.username, creds.password, creds.autoLogin);
+      self.fillAndSubmit(creds);
+    };
+    panel.appendChild(button);
+    document.body.appendChild(panel);
+  },
+
+  handle: function() {
+    this.revealPasswordLogin();
+    this.createSetupPanel();
+    var credentials = this.getCredentials();
+    if (credentials && credentials.username && credentials.password && credentials.autoLogin) {
+      this.fillAndSubmit(credentials);
+    } else {
+      log('[登录] 请在右上角保存一次账号密码；后续会自动登录');
+    }
+  }
+};
 
 // 生成题目指纹 (无视序号随机)
 function getQuestionFingerprint(qEl) {
@@ -1890,6 +2344,73 @@ function smartScore(text) {
   return score;
 }
 
+
+function getCurrentExamKey() {
+  var href = location.href || '';
+  var match = href.match(/[?&](?:cwid|cid)=([^&#]+)/i);
+  return match ? decodeURIComponent(match[1]) : location.pathname;
+}
+
+function chooseExamOptionWithStrategy(args) {
+  var options = args.options || [];
+  var tried = args.tried || [];
+  var strategy = args.strategy || {};
+  var baseline = strategy.baseline || {};
+  var storeKey = args.storeKey;
+  var baselineText = baseline[storeKey];
+  var probeIndex = Number(strategy.probeIndex || 0);
+  if (args.questionCount > 0) probeIndex = ((probeIndex % args.questionCount) + args.questionCount) % args.questionCount;
+
+  function findByText(text) {
+    if (!text) return null;
+    for (var i = 0; i < options.length; i++) {
+      if (options[i].text === text) return options[i];
+    }
+    return null;
+  }
+  function hasTried(text) {
+    for (var i = 0; i < tried.length; i++) {
+      if (text === tried[i] || text.indexOf(tried[i]) >= 0 || tried[i].indexOf(text) >= 0) return true;
+    }
+    return false;
+  }
+  function bestUntried() {
+    var candidates = [];
+    for (var i = 0; i < options.length; i++) {
+      if (!hasTried(options[i].text)) candidates.push(options[i]);
+    }
+    if (candidates.length === 0) return null;
+    candidates.sort(function(a, b) {
+      if (args.isNegativeQ) return smartScore(a.text) - smartScore(b.text);
+      return smartScore(b.text) - smartScore(a.text);
+    });
+    return candidates[0];
+  }
+
+  // 若已有基线且本题不是当前探测题，保持基线答案，避免失败后所有题同时换答案。
+  if (baselineText && args.questionIndex !== probeIndex) {
+    var baselineOption = findByText(baselineText);
+    if (baselineOption) return baselineOption;
+  }
+
+  var chosen = bestUntried();
+  if (chosen) return chosen;
+
+  var fallbackBaseline = findByText(baselineText);
+  if (fallbackBaseline) return fallbackBaseline;
+  return options.length ? options[Math.floor(Math.random() * options.length)] : null;
+}
+
+function getExamProbeStrategy(questionCount) {
+  var examKey = getCurrentExamKey();
+  var strategy = Store.g('HY_examProbeStrategy', {});
+  if (!strategy || strategy.examKey !== examKey || !strategy.baseline) {
+    strategy = { examKey: examKey, baseline: {}, probeIndex: 0, updatedAt: Date.now() };
+  }
+  if (questionCount > 0) strategy.probeIndex = ((Number(strategy.probeIndex || 0) % questionCount) + questionCount) % questionCount;
+  return strategy;
+}
+
 // 答题核心
 function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
   var questions = findQuestions();
@@ -1897,6 +2418,8 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
   
   var delaySoFar = 0;
   var answered = 0;
+  var submittedAnswers = {};
+  var examStrategy = getExamProbeStrategy(questions.length);
   
   for (var qi = 0; qi < questions.length; qi++) {
     var qEl = questions[qi];
@@ -1939,41 +2462,35 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
     
     if (!chosen) {
       var tried = currentTries[storeKey] || [];
-      var candidates = [];
-      
-      for (var oi3 = 0; oi3 < options.length; oi3++) {
-        var alreadyTried = false;
+      chosen = chooseExamOptionWithStrategy({
+        storeKey: storeKey,
+        questionIndex: qi,
+        questionCount: questions.length,
+        options: options,
+        tried: tried,
+        strategy: examStrategy,
+        isNegativeQ: isNegativeQ,
+        round: round
+      });
+      if (chosen) {
+        var existsTried = false;
         for (var ti = 0; ti < tried.length; ti++) {
-          if (options[oi3].text === tried[ti]) { alreadyTried = true; break; }
+          if (chosen.text === tried[ti] || chosen.text.indexOf(tried[ti]) >= 0 || tried[ti].indexOf(chosen.text) >= 0) { existsTried = true; break; }
         }
-        if (!alreadyTried) candidates.push(options[oi3]);
-      }
-      
-      if (candidates.length > 0) {
-        // 按智能评分排序 (反向题取最低分, 正向题取最高分)
-        candidates.sort(function(a, b) {
-          if (isNegativeQ) return smartScore(a.text) - smartScore(b.text);
-          return smartScore(b.text) - smartScore(a.text);
-        });
-        chosen = candidates[0];
-        tried.push(chosen.text);
+        if (!existsTried) tried.push(chosen.text);
         currentTries[storeKey] = tried;
-        log("[考试] 🔄 试错: " + chosen.text.substring(0, 20));
-      } else {
-        // 全部试过, 随机选一个(重置)
-        chosen = options[Math.floor(Math.random() * options.length)];
-        currentTries[storeKey] = [chosen.text];
-        log("[考试] ♻️ 重置试错: " + chosen.text.substring(0, 20));
+        if (!examStrategy.baseline[storeKey]) examStrategy.baseline[storeKey] = chosen.text;
+        log((examStrategy.baseline[storeKey] === chosen.text && qi !== examStrategy.probeIndex ? "[考试] 📌 基线: " : "[考试] 🔎 探测: ") + chosen.text.substring(0, 20));
       }
     }
     
     if (chosen) {
+      submittedAnswers[storeKey] = chosen.text;
       (function(opt) {
         setTimeout(function() {
           try {
-            // Try clicking the input directly first (more reliable)
+            // click() 会切换 checked；旧版先设 true 再 click 会把答案反向取消。
             if (opt.input && !opt.input.checked) {
-              opt.input.checked = true;
               opt.input.click();
             } else if (opt.el) {
               opt.el.click();
@@ -1989,8 +2506,11 @@ function answerQuestions(rightAnswers, allAnswers, currentTries, round) {
   window.__HY_examState = {
     rightAnswers: rightAnswers,
     currentTries: currentTries,
+    examStrategy: examStrategy,
     round: round
   };
+  Store.s('HY_examProbeStrategy', examStrategy);
+  Store.s('HY_LastSubmittedAnswers', submittedAnswers);
   
   log("[考试] 已答 " + answered + " 题");
 }
@@ -2004,6 +2524,11 @@ function submitExam() {
   }
   if (state && state.currentTries) {
     Store.s("HY_examTries", state.currentTries);
+  }
+  if (state && state.examStrategy) {
+    state.examStrategy.probeIndex = Number(state.examStrategy.probeIndex || 0) + 1;
+    state.examStrategy.updatedAt = Date.now();
+    Store.s('HY_examProbeStrategy', state.examStrategy);
   }
   
   // 查找提交/交卷按钮
@@ -2031,7 +2556,16 @@ function submitExam() {
     
     // 确认交卷
     setTimeout(function() {
-      var confirmBtn = document.querySelector("input[value*='确定'], button:contains('确定')");
+      var confirmBtn = document.querySelector("input[value*='确定']");
+      if (!confirmBtn) {
+        var confirmButtons = document.querySelectorAll('button');
+        for (var ci = 0; ci < confirmButtons.length; ci++) {
+          if ((confirmButtons[ci].textContent || '').trim().indexOf('确定') >= 0) {
+            confirmBtn = confirmButtons[ci];
+            break;
+          }
+        }
+      }
       if (confirmBtn) {
         confirmBtn.click();
         log("[考试] 已确认交卷");
@@ -2046,87 +2580,124 @@ function submitExam() {
   }
 }
 
+function learnFailedSubmittedAnswersFromResult() {
+  var pageText = document.body ? (document.body.innerText || document.body.textContent || '') : '';
+  if (pageText.indexOf('考试未通过') < 0 || pageText.indexOf('您的答案') < 0) return 0;
+  var currentTries = Store.g('HY_examTries', {});
+  var count = 0;
+  var normalized = pageText.replace(/\r/g, '\n').replace(/\s+/g, ' ');
+  function cleanQ(text) {
+    return String(text || '')
+      .replace(/^\s*\d+[、.，,\s)\]]+/, '')
+      .replace(/\s+/g, ' ').trim().substring(0, 50);
+  }
+  function cleanA(letter, text) {
+    return String((text || '').trim() || letter || '')
+      .replace(/^\s*[A-Za-z][、.，,)\s]*/, '')
+      .replace(/\s+/g, ' ').trim();
+  }
+  var pattern = /(\d+[、.]\s*[^【]+?)\s*【您的答案[：:]\s*([A-Z])[、.，,)\s]*([^】]+)】/g;
+  var match;
+  while ((match = pattern.exec(normalized))) {
+    var q = cleanQ(match[1]);
+    var a = cleanA(match[2], match[3]);
+    if (!q || !a) continue;
+    if (!currentTries[q]) currentTries[q] = [];
+    var exists = currentTries[q].some(function(old) {
+      return old === a || old.indexOf(a) >= 0 || a.indexOf(old) >= 0;
+    });
+    if (!exists) {
+      currentTries[q].push(a);
+      count++;
+    }
+  }
+  if (count > 0) {
+    Store.s('HY_examTries', currentTries);
+    log('[考试结果] 已从未通过结果页记录 ' + count + ' 个失败选项，下一轮自动避开');
+  }
+  return count;
+}
+
 // 处理考试结果
 function doResult(callback) {
-  log("[考试结果] 解析结果并保存答案...");
-  
-  try {
-    var ra = Store.g(CONFIG.keys.rightAnswers, {});
-    var saved = 0;
-    
-    // v5.0.0: 先从文本解析 (考试结果页可能没有table)
-    var bodyText = document.body ? document.body.innerText : "";
-    var textLines = bodyText.split("\n");
-    for (var tli = 0; tli < textLines.length; tli++) {
-      var tline = textLines[tli].trim();
-      var tqMatch = tline.match(/^\d+[、.](.+)/);
-      if (tqMatch) {
-        var tq = tqMatch[1].trim().replace(/（.*$/, "").substring(0, 50);
-        var taMatch = tline.match(/您的答案[：:]\s*[A-E][、.，,]\s*(.+)/);
-        if (!taMatch && tli + 1 < textLines.length) taMatch = textLines[tli + 1].match(/您的答案[：:]\s*[A-E][、.，,]\s*(.+)/);
-        if (taMatch) { var ta = taMatch[1].trim(); if (tq && ta && !ra[tq]) { ra[tq] = ta; saved++; } }
-      }
-    }
-    // 也从表格或div解析考试结果
-    var tables = document.querySelectorAll("table.tablestyle, table");
-    for (var ti = 0; ti < tables.length; ti++) {
-      var rows = tables[ti].querySelectorAll("tr");
-      for (var ri = 0; ri < rows.length; ri++) {
-        var cells = rows[ri].querySelectorAll("td");
-        if (cells.length < 2) continue;
-        
-        var qText = '';
-        var answerText = '';
-        var isCorrect = false;
-        var userAnswer = '';
-        
-        for (var ci = 0; ci < cells.length; ci++) {
-          var txt = cells[ci].textContent.trim();
-          if (txt.indexOf('正确') >= 0 || txt.indexOf('对') >= 0 || txt === '√' || txt === '✓') isCorrect = true;
-          if (txt.indexOf('错误') >= 0 || txt === '错' || txt === '×') isCorrect = false;
-          // 长文本且非数字/分数 -> 题目或答案
-          if (txt.length > 10 && !txt.match(/^[\d.]+$/) && txt.indexOf('分') === -1 && txt.indexOf('正确') === -1 && txt.indexOf('错误') === -1) {
-            if (!qText) qText = txt;
-            else if (!answerText) answerText = txt;
-            else if (!userAnswer) userAnswer = txt;
-          }
-        }
-        
-        // 保存正确答案 (不管本次对错, 从解析中学习)
-        if (qText && answerText) {
-          var cleanQ = qText.replace(/^\s*\d+[、.，,\s]+/, '').replace(/\s+/g, ' ').trim().substring(0, 50);
-          var cleanA = answerText.replace(/^\s*[A-Za-z][、.，,)\s]+/, '').trim();
-          if (cleanQ && cleanA) {
-            ra[cleanQ] = cleanA;
-            saved++;
-            if (isCorrect) log('[考试结果] ✓ 保存正确答案: ' + cleanQ.substring(0, 20));
-          }
-        }
-      }
-    }
-    
-    // 也尝试从div结构解析
-    var qDivs = document.querySelectorAll('[class*="question"], [class*="ti"], .exam-item');
-    for (var di = 0; di < qDivs.length; di++) {
-      var qText2 = qDivs[di].querySelector('.q_name, .question-text, [class*="title"]');
-      var aText2 = qDivs[di].querySelector('.correct-answer, .right-answer, [class*="correct"], [class*="answer"]');
-      if (qText2 && aText2) {
-        var cq = qText2.textContent.replace(/^\s*\d+[、.，,\s]+/, '').replace(/\s+/g, ' ').trim().substring(0, 50);
-        var ca = aText2.textContent.replace(/^\s*[A-Za-z][、.，,)\s]+/, '').trim();
-        if (cq && ca && !ra[cq]) { ra[cq] = ca; saved++; }
-      }
-    }
-    
-    if (saved > 0) {
-      Store.s(CONFIG.keys.rightAnswers, ra);
-      log("[考试结果] 保存 " + saved + " 道正确答案");
-    } else {
-      log("[考试结果] 未解析到正确答案");
-    }
-  } catch(e) {
-    log("[考试结果] 出错: " + e.message);
+  log("[考试结果] 解析结果并保存可验证的正确答案...");
+
+  function cleanQuestion(text) {
+    return String(text || '')
+      .replace(/^\s*\d+[、.，,\s)\]]+/, '')
+      .replace(/（[^）]*(?:正确|错误|得分)[^）]*）/g, '')
+      .replace(/\s+/g, ' ').trim().substring(0, 50);
   }
-  
+  function cleanAnswer(text) {
+    return String(text || '').replace(/^\s*[A-Za-z][、.，,)\s]+/, '').replace(/\s+/g, ' ').trim();
+  }
+
+  try {
+    var right = Store.g(CONFIG.keys.rightAnswers, {});
+    var submitted = Store.g('HY_LastSubmittedAnswers', {});
+    var saved = 0;
+    learnFailedSubmittedAnswersFromResult();
+
+    function submittedFor(question) {
+      if (submitted[question]) return submitted[question];
+      var keys = Object.keys(submitted);
+      for (var si = 0; si < keys.length; si++) {
+        if (keys[si].indexOf(question) >= 0 || question.indexOf(keys[si]) >= 0) return submitted[keys[si]];
+      }
+      return '';
+    }
+    function save(question, answer) {
+      var q = cleanQuestion(question);
+      var a = cleanAnswer(answer);
+      if (!q || !a || a.length > 500) return;
+      if (right[q] !== a) {
+        right[q] = a;
+        saved++;
+      }
+    }
+
+    // 当前站点结果页的每题结构。只在明确“正确”图标/文字或明确“正确答案”字段时学习。
+    var items = document.querySelectorAll('.state_cour_lis, [data-question-result], .question-result, .exam-result-item');
+    for (var ii = 0; ii < items.length; ii++) {
+      var item = items[ii];
+      var questionEl = item.querySelector('[data-question], .q_name, .question-text, p[title], p');
+      var question = cleanQuestion(questionEl ? (questionEl.getAttribute('title') || questionEl.textContent) : '');
+      if (!question) continue;
+      var itemText = (item.textContent || '').replace(/\s+/g, ' ');
+      var explicit = itemText.match(/正确答案\s*[：:]\s*(?:[A-Za-z][、.，,)\s]*)?(.+?)(?:您的答案|$)/);
+      if (explicit && explicit[1]) {
+        save(question, explicit[1]);
+        continue;
+      }
+      var icon = item.querySelector('img');
+      var iconSignal = icon ? [icon.src, icon.alt, icon.title, icon.className].join(' ') : '';
+      var isCorrect = /bar_img|right|correct|success|dui|正确/i.test(iconSignal) ||
+        /(?:^|\s)(?:回答正确|答对|正确)(?:\s|$)/.test(itemText);
+      var isWrong = /wrong|error|incorrect|错误|答错/i.test(iconSignal) || /回答错误|答错/.test(itemText);
+      if (isCorrect && !isWrong) save(question, submittedFor(question));
+    }
+
+    // 兼容表格结果页，但必须存在明确的“正确答案：”标签。
+    var rows = document.querySelectorAll('table tr');
+    for (var ri = 0; ri < rows.length; ri++) {
+      var rowText = (rows[ri].textContent || '').replace(/\s+/g, ' ').trim();
+      var answerMatch = rowText.match(/正确答案\s*[：:]\s*(?:[A-Za-z][、.，,)\s]*)?(.+?)(?:您的答案|得分|$)/);
+      if (!answerMatch) continue;
+      var qNode = rows[ri].querySelector('.q_name, .question-text, [data-question], td');
+      if (qNode) save(qNode.textContent, answerMatch[1]);
+    }
+
+    if (saved > 0) {
+      Store.s(CONFIG.keys.rightAnswers, right);
+      log("[考试结果] 已保存 " + saved + " 道经结果页验证的正确答案");
+    } else {
+      log("[考试结果] 本页没有可验证的新答案");
+    }
+    Store.d('HY_LastSubmittedAnswers');
+  } catch(error) {
+    log("[考试结果] 出错: " + error.message);
+  }
+
   if (callback) setTimeout(callback, 3000);
 }
 
@@ -2403,9 +2974,21 @@ function createBtn(text, color, onClick) {
 
 function mainRouter() {
   log('[路由] ' + URL.full.substring(0, 100));
+
+  if (URL.isLogin) {
+    LoginController.handle();
+    return;
+  }
   
   // 创建UI
   createControlPanel();
+
+  if (Store.g(CONFIG.keys.paused, false)) {
+    SmartEngine._running = false;
+    SmartEngine.updateUI('paused');
+    log('[路由] 自动流程已暂停，等待用户点击执行');
+    return;
+  }
   
   // 清理页面限制
   cleanupRestrictions();
@@ -2447,6 +3030,10 @@ function mainRouter() {
       // 申请证书页 - 自动点击申请按钮
       log('[路由] 申请证书页');
       SmartEngine.handleCertificateApply();
+    }
+    else if (URL.isCardSelect) {
+      log('[路由] 培训卡选择页');
+      SmartEngine.handleCardSelect();
     }
     else if (URL.isCourseDetail) {
       // 课程详情页
@@ -2490,12 +3077,36 @@ function mainRouter() {
       // 多次尝试扫描, 等待Vue渲染完成
       var retryCount = 0;
       var maxRetries = 6;
+      var seenVuePages = {};
+      var vuePageWaits = 0;
+      var vuePagesScanned = 0;
       function tryVueScan() {
         if (SmartEngine._running) {
           SmartEngine.handleCurrentPage();
           return;
         }
         var analysis = CreditPlanner.analyze();
+        if (Store.g('__HY_needMoreCourses', false) && analysis && analysis.courses.length > 0) {
+          var currentCards = VueCourseScanner.scanFromVueSPA();
+          var signature = currentCards.map(function(course) { return course.link || course.name; }).sort().join('|');
+          if (signature && seenVuePages[signature]) {
+            vuePageWaits++;
+            if (vuePageWaits <= 4) {
+              setTimeout(tryVueScan, 1500);
+              return;
+            }
+          } else if (signature) {
+            seenVuePages[signature] = true;
+            vuePageWaits = 0;
+            vuePagesScanned++;
+          }
+          if (vuePagesScanned < 100 && VueCourseScanner.advanceVuePage()) {
+            log('[课程发现] 已扫描第 ' + vuePagesScanned + ' 页，继续下一页');
+            setTimeout(tryVueScan, 2500);
+            return;
+          }
+          log('[课程发现] 分页扫描完成，共发现 ' + analysis.courses.length + ' 门课程');
+        }
         if (analysis && !analysis.met) {
           log('[学分] 缺口: ' + analysis.totalRemaining + '分 (公需' + analysis.publicRemaining + ', 其他' + analysis.otherRemaining + ')');
           CreditPlanner.showQuickStatus(analysis);
@@ -2503,36 +3114,10 @@ function mainRouter() {
             if (Store.g('__HY_needMoreCourses', false)) {
               Store.d('__HY_needMoreCourses');
               log('[引擎] 从学习记录页转来, 寻找新课程补充计划...');
-              // Merge Vue SPA courses with existing analysis
-              var existingPlan = Store.g(HY_PLAN_KEY, null);
-              var vueCourses = analysis.courses;
-              var newTasks = [];
-              var needMore = analysis.totalRemaining;
-              for (var vi = 0; vi < vueCourses.length && newTasks.length < 10; vi++) {
-                var vc = vueCourses[vi];
-                // Skip if already in plan
-                var inPlan = false;
-                if (existingPlan && existingPlan.tasks) {
-                  for (var pi = 0; pi < existingPlan.tasks.length; pi++) {
-                    if (existingPlan.tasks[pi].name === vc.name) { inPlan = true; break; }
-                  }
-                }
-                if (!inPlan) {
-                  newTasks.push({name: vc.name, url: vc.link, credit: vc.credit, status: vc.status, isPublic: vc.isPublic, completed: false});
-                  needMore -= vc.credit;
-                  if (needMore <= 0) break;
-                }
-              }
-              if (newTasks.length > 0) {
-                if (existingPlan && existingPlan.tasks) {
-                  existingPlan.tasks = existingPlan.tasks.concat(newTasks);
-                  Store.s(HY_PLAN_KEY, existingPlan);
-                } else {
-                  Store.s(HY_PLAN_KEY, {tasks: newTasks, total: newTasks.reduce(function(s,t){return s+t.credit;},0), need: analysis.totalRemaining, createdAt: Date.now()});
-                }
-                Store.s(HY_PLAN_IDX, 0);
+              var discoveredPlan = CreditPlanner.generatePlan(analysis);
+              if (discoveredPlan && discoveredPlan.tasks.length > 0) {
                 SmartEngine._running = true;
-                log('[引擎] 补充' + newTasks.length + '门新课程到计划');
+                log('[引擎] 已从完整课程目录生成 ' + discoveredPlan.tasks.length + ' 项任务');
                 SmartEngine.showTasks();
                 var firstTask = SmartEngine.getCurrentTask();
                 if (firstTask) SmartEngine.navigateToTask(firstTask);
@@ -2612,8 +3197,33 @@ function init() {
   mainRouter();
 }
 
+// 测试入口只暴露纯解析/状态组件，不启动计时器和页面导航。
+if (window.__HY_TEST_MODE__) {
+  window.__HY_TEST_API__ = {
+    CONFIG: CONFIG,
+    Store: Store,
+    URL: URL,
+    VueCourseScanner: VueCourseScanner,
+    parseVueCourseCard: VueCourseScanner.parseVueCourseCard.bind(VueCourseScanner),
+    CreditPlanner: CreditPlanner,
+    SmartEngine: SmartEngine,
+    LoginController: LoginController,
+    shouldRetryLogin: LoginController.shouldRetryLogin.bind(LoginController),
+    findQuestions: findQuestions,
+    getQuestionFingerprint: getQuestionFingerprint,
+    extractOptions: extractOptions,
+    smartScore: smartScore,
+    chooseExamOptionWithStrategy: chooseExamOptionWithStrategy,
+    getExamProbeStrategy: getExamProbeStrategy,
+    doResult: doResult,
+    learnFailedSubmittedAnswersFromResult: learnFailedSubmittedAnswersFromResult,
+    fillSurveyForm: fillSurveyForm,
+    isElementEnabled: isElementEnabled,
+    findInteractiveAction: findInteractiveAction
+  };
+}
 // 根据DOM就绪状态启动
-if (document.readyState === 'loading') {
+else if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', function() {
     // Vue SPA需要额外等待Vue渲染
     if (window.location.href.indexOf('/cme/') !== -1) {
