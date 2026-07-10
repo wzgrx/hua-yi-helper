@@ -1965,6 +1965,29 @@ var LoginController = {
     if (img) img.src = '/secure/CheckCode.aspx?r=' + Math.random();
   },
 
+  getLoginErrorText: function() {
+    var selectors = [
+      '.layui-layer-content', '.layui-layer-dialog', '.el-message', '.ant-message',
+      '.toast', '.message', '.error', '.tips', '.login_tips'
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var nodes = document.querySelectorAll(selectors[i]);
+      for (var j = 0; j < nodes.length; j++) {
+        if (!nodes[j].offsetWidth && !nodes[j].offsetHeight && !nodes[j].getClientRects().length) continue;
+        var text = (nodes[j].innerText || nodes[j].textContent || '').trim();
+        if (/验证码|用户名|密码|账号|错误|失败|不存在|锁定/.test(text)) return text;
+      }
+    }
+    return '';
+  },
+
+  shouldRetryLogin: function(errorText) {
+    if (!errorText) return true;
+    if (/验证码/.test(errorText)) return true;
+    if (/用户名|账号|密码|不存在|锁定/.test(errorText)) return false;
+    return true;
+  },
+
   fillAndSubmit: async function(credentials) {
     if (this._busy) return;
     this._busy = true;
@@ -1981,6 +2004,8 @@ var LoginController = {
       }
       this.setNativeValue(username, credentials.username);
       this.setNativeValue(password, credentials.password);
+      var realPassword = document.getElementById('txt_user_pwd_real');
+      if (realPassword) this.setNativeValue(realPassword, credentials.password);
       if (!agreement.checked) {
         agreement.checked = true;
         agreement.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1993,7 +2018,12 @@ var LoginController = {
       var self = this;
       setTimeout(function() {
         if (location.pathname.toLowerCase().indexOf('/secure/login') >= 0 && self._attempts < 5) {
-          log('[登录] 页面仍在登录页，刷新验证码后重试');
+          var errorText = self.getLoginErrorText();
+          if (!self.shouldRetryLogin(errorText)) {
+            log('[登录] 服务端拒绝账号密码，停止自动重试：' + errorText);
+            return;
+          }
+          log('[登录] 页面仍在登录页，刷新验证码后重试' + (errorText ? '：' + errorText : ''));
           self.refreshCaptcha();
           setTimeout(function() { self.fillAndSubmit(credentials); }, 1800);
         }
@@ -2971,6 +3001,7 @@ if (window.__HY_TEST_MODE__) {
     CreditPlanner: CreditPlanner,
     SmartEngine: SmartEngine,
     LoginController: LoginController,
+    shouldRetryLogin: LoginController.shouldRetryLogin.bind(LoginController),
     findQuestions: findQuestions,
     getQuestionFingerprint: getQuestionFingerprint,
     extractOptions: extractOptions,
