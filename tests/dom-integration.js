@@ -311,6 +311,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('与神经轴索变性和损伤相关的新型体液生物标志物是？'), '神经丝轻链（NfL）');
   assert.equal(api.verifiedAnswer('脑脊液标本处理中，受检测前因素影响最大的标志物是？'), 'Aβ42');
   assert.equal(api.verifiedAnswer('相较于PET影像，脑脊液生物标志物的优势不包括？'), '无创性检测');
+  assert.equal(api.verifiedAnswer('典型AD患者最早出现的临床症状是哪种记忆障碍？'), '情景记忆障碍');
+  assert.equal(api.verifiedAnswer('AD脑结构变化的典型特点是？'), '早期海马萎缩，晚期全脑萎缩');
+  assert.equal(api.verifiedAnswer('AD临床症状的ABC分类中，A代表的是？'), '日常生活能力受损');
+  assert.equal(api.verifiedAnswer('诊断AD源性SCD的核心条件不包括？'), 'AD生物标志物阴性');
+  assert.equal(api.verifiedAnswer('失读的病变部位主要是？'), '顶下小叶的缘上回和角回');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
