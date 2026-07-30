@@ -182,6 +182,20 @@ test('证书页仅在申请成功步骤激活后判定完成', () => {
   assert.equal(api.certificateSucceeded(), true);
 });
 
+test('培训卡缺失后按持久化时间自动复查申请', () => {
+  const { api } = boot('');
+  const tasks = [{ type: 'apply', record: { url: '/apply', name: '待申请课程' } }];
+  const first = api.blockedApplicationDecision(tasks, 0, 1000);
+  assert.equal(first.action, 'retry');
+  assert.equal(first.task.record.name, '待申请课程');
+  assert.equal(first.retryAt, 1801000);
+  const waiting = api.blockedApplicationDecision(tasks, first.retryAt, 2000);
+  assert.equal(waiting.action, 'wait');
+  assert.equal(waiting.waitMs, 1799000);
+  const due = api.blockedApplicationDecision(tasks, first.retryAt, 1801001);
+  assert.equal(due.action, 'retry');
+});
+
 test('播放器识别新版签到、继续学习提示及原生媒体状态', () => {
   const { api } = boot(`<video></video><div class="study_diaog"><button class="btn_sign">签到</button></div>`,
     'https://cme28.91huayi.com/course_ware/course_ware_polyv.aspx?cwid=x');

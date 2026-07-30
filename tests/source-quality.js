@@ -24,4 +24,5 @@ assert(/media\.video\.play\(\)/.test(player));
 assert(!/currentTime\s*=/.test(player));
 const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
 assert.equal((source.match(/@version\s+(\S+)/)||[])[1],pkg.version);
+assert(source.includes(`var VERSION = '${pkg.version}'`));
 console.log(`v8 源码质量检查通过：${files.length} 个 JavaScript 文件`);

@@ -3,7 +3,7 @@
 
   var Core = window.HuayiCore;
   if (!Core) throw new Error('HuayiCore 未加载');
-  var VERSION = '8.1.1';
+  var VERSION = '__PACKAGE_VERSION__';
   var STATE_KEY = 'HY8_STATE';
   var ANSWER_KEY = 'HY8_ANSWERS';
   var EXAM_KEY = 'HY8_EXAMS';
@@ -11,6 +11,7 @@
   var POLICY_KEY = 'HY8_POLICY';
   var LOGIN_KEY = 'HY8_LOGIN';
   var CAPTCHA_CONFIG_KEY = 'HY8_CAPTCHA_CONFIG';
+  var CARD_RETRY_MS = 30 * 60 * 1000;
   var pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
   function read(key, fallback) {
@@ -204,6 +205,7 @@
       message: '就绪', credit: 0, publicEarned: 0, otherEarned: 0,
       publicProjected: 0, otherProjected: 0, currentCourseUrl: '', currentCourseName: '',
       currentCwid: '', lastRoute: '', lastActionAt: 0,
+      blockedApplications: [], blockedApplicationYear: policy.year, blockedApplicationRetryAt: 0,
       catalogYear: policy.year, catalogVisited: [], catalogSourcesVisited: [],
       studyRecords: [], catalogRecords: [], planTasks: [], logs: []
     };
@@ -274,6 +276,7 @@
         paused: false,
         blockedApplications: [],
         blockedApplicationYear: Number(policy.year),
+        blockedApplicationRetryAt: 0,
         message: '正在恢复流程'
       });
       runRoute(true);
@@ -408,6 +411,27 @@
     });
   }
 
+  function blockedApplicationDecision(tasks, retryAt, timestamp) {
+    var list = tasks || [];
+    if (!list.length) return null;
+    var current = Number(timestamp || Date.now());
+    var nextRetryAt = Number(retryAt || 0);
+    if (!nextRetryAt || current >= nextRetryAt) {
+      return {
+        action: 'retry',
+        task: list[0],
+        retryAt: current + CARD_RETRY_MS,
+        waitMs: 0
+      };
+    }
+    return {
+      action: 'wait',
+      task: null,
+      retryAt: nextRetryAt,
+      waitMs: Math.max(1000, nextRetryAt - current)
+    };
+  }
+
   function findCatalogLink(pattern, fallback) {
     var link = Array.from(document.querySelectorAll('a[href]')).find(function (element) {
       return pattern.test(actionText(element));
@@ -501,12 +525,37 @@
         blockedApplications.indexOf(item.record.url) >= 0;
     });
     if (blockedApplyTasks.length) {
+      var blockedDecision = blockedApplicationDecision(
+        blockedApplyTasks, state.blockedApplicationRetryAt, Date.now()
+      );
+      if (blockedDecision.action === 'retry') {
+        var retryTask = blockedDecision.task;
+        setState({
+          running: true,
+          paused: false,
+          blockedApplications: blockedApplications.filter(function (url) {
+            return url !== retryTask.record.url;
+          }),
+          blockedApplicationRetryAt: blockedDecision.retryAt,
+          currentCourseUrl: retryTask.record.url,
+          currentCourseName: retryTask.record.name,
+          phase: 'certificate',
+          message: '定时复查培训卡并重试学分申请：' + retryTask.record.name
+        });
+        navigate(retryTask.record.url);
+        return;
+      }
+      var waitMinutes = Math.max(1, Math.ceil(blockedDecision.waitMs / 60000));
       setState({
-        running: false,
-        paused: true,
+        running: true,
+        paused: false,
         phase: 'card',
-        message: '其他学习任务已处理；' + blockedApplyTasks.length + ' 门已完成课程等待可用培训卡申请学分'
+        message: '其他学习任务已处理；' + blockedApplyTasks.length +
+          ' 门已完成课程等待培训卡，约 ' + waitMinutes + ' 分钟后自动复查'
       });
+      setTimeout(function () {
+        if (state.running && route() === 'study') handleStudy(0);
+      }, Math.min(blockedDecision.waitMs, 2147483647));
       return;
     }
     var needsPublic = plan.projectedPublic < Number(policy.publicTarget);
@@ -1127,7 +1176,11 @@
     if (certificateSucceeded()) {
       var blocked = Array.isArray(state.blockedApplications) ? state.blockedApplications.slice() : [];
       blocked = blocked.filter(function (url) { return url !== state.currentCourseUrl; });
-      setState({ blockedApplications: blocked, message: '学分申请成功，返回学习记录核验' });
+      setState({
+        blockedApplications: blocked,
+        blockedApplicationRetryAt: blocked.length ? state.blockedApplicationRetryAt : 0,
+        message: '学分申请成功，返回学习记录核验'
+      });
       setTimeout(function () { navigate('/pages/study_info_list.aspx'); }, 1000);
       return;
     }
@@ -1150,6 +1203,7 @@
       setState({
         blockedApplications: blocked.slice(-100),
         blockedApplicationYear: Number(policy.year),
+        blockedApplicationRetryAt: Date.now() + CARD_RETRY_MS,
         phase: 'study',
         message: '当前课程暂无可用培训卡，先继续其他年度任务'
       });
@@ -1783,6 +1837,7 @@
       , certificateSucceeded: certificateSucceeded, findCertificateApplyAction: findCertificateApplyAction
       , examCaptchaElements: examCaptchaElements, solveExamCaptcha: solveExamCaptcha
       , selectSurveyChoice: selectSurveyChoice, handleSurvey: handleSurvey
+      , blockedApplicationDecision: blockedApplicationDecision
     };
     window.__HY7_TEST_API__ = window.__HY8_TEST_API__;
     init();

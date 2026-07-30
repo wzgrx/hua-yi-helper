@@ -44,7 +44,7 @@ function preloadSource(policy, options) {
       'running', 'paused', 'phase', 'message',
       'credit', 'publicEarned', 'otherEarned', 'publicProjected', 'otherProjected',
       'currentCourseUrl', 'currentCourseName', 'currentCwid',
-      'blockedApplications', 'blockedApplicationYear',
+      'blockedApplications', 'blockedApplicationYear', 'blockedApplicationRetryAt',
       'catalogYear', 'catalogSourcesVisited', 'lastRoute', 'lastActionAt'
     ];
     const bridgeRead = () => {

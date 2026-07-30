@@ -72,6 +72,7 @@ const hugeState = {
     'https://cme28.91huayi.com/pages/apply_certificate.aspx?cid=two'
   ],
   blockedApplicationYear: 2026,
+  blockedApplicationRetryAt: 987654999,
   lastActionAt: 987654321,
   studyRecords: Array.from({ length: 80 }, (_, index) => ({
     name: `超长学习记录-${index}-${'x'.repeat(240)}`,
@@ -91,6 +92,7 @@ assert(bridgePart.length < 4096, `状态桥 Cookie 超限：${bridgePart.length}
 const bridgeState = JSON.parse(decodeURIComponent(bridgePart.split('=').slice(1).join('=')));
 assert.deepEqual(bridgeState.blockedApplications, hugeState.blockedApplications);
 assert.equal(bridgeState.blockedApplicationYear, 2026);
+assert.equal(bridgeState.blockedApplicationRetryAt, hugeState.blockedApplicationRetryAt);
 assert.equal(bridgeState.currentCwid, 'cw-fixture');
 assert.equal(bridgeState.studyRecords, undefined);
 assert.equal(bridgeState.catalogRecords, undefined);
@@ -112,6 +114,7 @@ secondary.window.localStorage.setItem('HY_HERMES_HY8_STATE', JSON.stringify({
 secondary.window.eval(preloadSource({ year: 2026, publicTarget: 5, otherTarget: 20 }));
 const mergedState = JSON.parse(secondary.window.localStorage.getItem('HY_HERMES_HY8_STATE'));
 assert.deepEqual(mergedState.blockedApplications, hugeState.blockedApplications);
+assert.equal(mergedState.blockedApplicationRetryAt, hugeState.blockedApplicationRetryAt);
 assert.equal(mergedState.currentCwid, 'cw-fixture');
 assert.equal(mergedState.planTasks.length, 1);
 assert.equal(mergedState.studyRecords.length, 1);

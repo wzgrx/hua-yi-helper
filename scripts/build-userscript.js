@@ -6,7 +6,9 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const core = fs.readFileSync(path.join(root, 'src', 'shared', 'core.js'), 'utf8').trim();
-const runtime = fs.readFileSync(path.join(root, 'src', 'tampermonkey', 'runtime.js'), 'utf8').trim();
+const runtime = fs.readFileSync(path.join(root, 'src', 'tampermonkey', 'runtime.js'), 'utf8')
+  .trim()
+  .replace(/__PACKAGE_VERSION__/g, pkg.version);
 const target = path.join(root, 'src', 'tampermonkey', 'hua-yi-helper.user.js');
 
 const metadata = `// ==UserScript==
