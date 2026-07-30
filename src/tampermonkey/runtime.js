@@ -1254,7 +1254,8 @@
         setTimeout(function () { if (route() === 'result') handleResult(retry + 1); }, 500);
         return;
       }
-      examState.attempt = learnedCount || rejectedCount ? 1 : Number(examState.attempt || 0) + 1;
+      examState.attempt = rejectedCount ? 0 :
+        (learnedCount ? 1 : Number(examState.attempt || 0) + 1);
       resultRecords.forEach(function (entry) { if (entry.key && entry.answer) examState.submitted[entry.key] = entry.answer; });
       exams[cwid] = examState; write(EXAM_KEY, exams);
       setState({

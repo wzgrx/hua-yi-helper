@@ -89,7 +89,11 @@ function boot(url, seed = {}) {
     await wait(500);
     const exams = fixture.values.get('HY8_EXAMS');
     const learned = fixture.values.get('HY8_ANSWERS');
-    assert.equal(exams['result-exam'].attempt, 1);
+    assert.equal(exams['result-exam'].attempt, 0);
+    assert.deepEqual(
+      Array.from(exams['result-exam'].rejected.第二题),
+      ['错误答案']
+    );
     assert.equal(learned.第一题, '正确答案');
     assert.equal(learned.第二题, undefined);
     fixture.dom.window.close();
