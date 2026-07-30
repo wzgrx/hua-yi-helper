@@ -66,31 +66,66 @@ function acquireLock(file) {
 function buildKeepAwakeScript() {
   return [
     "$ErrorActionPreference = 'Stop'",
-    "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class Awake { [DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint e); }'",
-    "$continuous = [Convert]::ToUInt32('80000000', 16)",
-    "$systemRequired = [Convert]::ToUInt32('00000001', 16)",
-    '$enabled = $continuous -bor $systemRequired',
-    '[Awake]::SetThreadExecutionState($enabled) | Out-Null',
-    'try { while ($true) { Start-Sleep -Seconds 30 } } finally { [Awake]::SetThreadExecutionState($continuous) | Out-Null }'
+    "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class AwakePulse { [DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint e); }'",
+    '$result = [AwakePulse]::SetThreadExecutionState(1)',
+    "if ($result -eq 0) { throw 'SetThreadExecutionState failed' }"
   ].join('; ');
 }
 
 function startKeepAwake(enabled, report) {
   if (!enabled || process.platform !== 'win32') return { close() {} };
   const script = buildKeepAwakeScript();
-  const child = childProcess.spawn(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', script],
-    { detached: false, stdio: 'ignore', windowsHide: true }
-  );
-  if (report) report({ type: 'keep_awake', message: `临时保持系统唤醒已启用（PID ${child.pid}）` });
+  let child = null;
+  let closed = false;
+  let pulseCount = 0;
+  let lastExitCode = null;
+  const pulse = () => {
+    if (closed || child && child.exitCode === null) return;
+    const spawned = childProcess.spawn(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      { detached: false, stdio: 'ignore', windowsHide: true }
+    );
+    child = spawned;
+    spawned.once('error', error => {
+      if (child === spawned) child = null;
+      lastExitCode = -1;
+      if (report && !closed) report({
+        type: 'keep_awake_error',
+        message: `系统唤醒刷新启动失败：${error.message}`
+      });
+    });
+    spawned.once('exit', code => {
+      lastExitCode = code;
+      if (code === 0) {
+        pulseCount++;
+        return;
+      }
+      if (report && !closed) report({
+        type: 'keep_awake_error',
+        message: `系统唤醒刷新异常退出（code ${code}）`
+      });
+    });
+  };
+  pulse();
+  const timer = setInterval(pulse, 20000);
+  if (typeof timer.unref === 'function') timer.unref();
+  if (report) report({ type: 'keep_awake', message: '临时保持系统唤醒已启用（每 20 秒刷新）' });
   return {
-    pid: child.pid,
     isRunning() {
-      return Boolean(child.pid) && child.exitCode === null && !child.killed;
+      return !closed;
+    },
+    getPulseCount() {
+      return pulseCount;
+    },
+    getLastExitCode() {
+      return lastExitCode;
     },
     close() {
-      if (!child.pid || child.exitCode !== null) return;
+      if (closed) return;
+      closed = true;
+      clearInterval(timer);
+      if (!child || !child.pid || child.exitCode !== null) return;
       childProcess.spawnSync(
         'taskkill',
         ['/PID', String(child.pid), '/T', '/F'],

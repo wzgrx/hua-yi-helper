@@ -31,13 +31,17 @@ const { closeRuntimeResources } = require('../src/hermes/runner');
 
     const keepAwakeScript = buildKeepAwakeScript();
     assert(keepAwakeScript.includes("$ErrorActionPreference = 'Stop'"));
-    assert(keepAwakeScript.includes("[Convert]::ToUInt32('80000000', 16)"));
+    assert(keepAwakeScript.includes('SetThreadExecutionState(1)'));
+    assert(!keepAwakeScript.includes('80000000'));
     assert(!keepAwakeScript.includes('SetThreadExecutionState(0x80000001)'));
     if (process.platform === 'win32') {
       const awake = startKeepAwake(true);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 2500));
       assert.equal(awake.isRunning(), true);
+      assert.equal(awake.getLastExitCode(), 0);
+      assert(awake.getPulseCount() >= 1);
       awake.close();
+      assert.equal(awake.isRunning(), false);
     }
 
     let runs = 0;
