@@ -7,6 +7,7 @@ const files = [];
 (function walk(dir){ for(const entry of fs.readdirSync(dir,{withFileTypes:true})){ const full=path.join(dir,entry.name); entry.isDirectory()?walk(full):entry.name.endsWith('.js')&&files.push(full); } })(path.join(root,'src'));
 for(const file of files){ const result=spawnSync(process.execPath,['--check',file],{encoding:'utf8'}); assert.equal(result.status,0,`${file}: ${result.stderr}`); }
 const source = fs.readFileSync(path.join(root,'src','tampermonkey','hua-yi-helper.user.js'),'utf8');
+const verifiedAnswers = JSON.parse(fs.readFileSync(path.join(root,'src','tampermonkey','verified-answers.json'),'utf8'));
 const all = files.map(f=>fs.readFileSync(f,'utf8')).join('\n');
 assert(!/ghp_[A-Za-z0-9]{20,}/.test(all));
 assert(!/(?:username|password|token)\s*[:=]\s*['"][A-Za-z0-9+/_-]{20,}['"]/i.test(all));
@@ -16,6 +17,9 @@ assert(!/currentTime\s*=/.test(all));
 assert(!/window\.open\s*=/.test(source));
 assert(!/removeAttribute\(['"]on/.test(source));
 assert(!/@require\s/.test(source));
+assert(verifiedAnswers.length >= 140);
+assert(verifiedAnswers.every(entry => Array.isArray(entry) && entry.length >= 2 && entry[0] && entry[1]));
+assert(!source.includes('__VERIFIED_ANSWER_DATA__'));
 const playerStart=source.indexOf('function handlePlayer()');
 const playerEnd=source.indexOf('var VERIFIED',playerStart);
 const player=source.slice(playerStart,playerEnd);

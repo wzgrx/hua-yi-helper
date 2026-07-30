@@ -941,7 +941,7 @@
     }, 1000);
   }
 
-  var VERIFIED = [
+  var VERIFIED = __VERIFIED_ANSWER_DATA__.concat([
     ['体重正常但存在中心型肥胖', '以减少内脏脂肪沉积为主，更加关注腰围的改变'],
     ['实现长期有效减重的关键', '使能量代谢处于负平衡状态'],
     ['老年T2D患者（≥65岁）', '摒弃单纯追求体重数字下降，将功能改善与生活质量作为核心导向'],
@@ -1027,7 +1027,7 @@
     ['AD与房颤的关系中', '甲状腺功能亢进', 'C'],
     ['AD患者共病的流行病学特点', '65 岁以上老年痴呆患者共病发生率更高', 'D'],
     ['阻塞性睡眠呼吸暂停（OSA）对AD的影响', 'AD患者对CPAP治疗的耐受性极好', 'E']
-  ];
+  ]);
   function verifiedEntry(question) {
     var q = normalize(clean(question).replace(/m²/g, 'm2'));
     for (var i = 0; i < VERIFIED.length; i++) {

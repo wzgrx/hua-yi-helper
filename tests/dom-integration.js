@@ -347,6 +347,12 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('关于 AD 患者共病的流行病学特点，说法正确的是？'), '65 岁以上老年痴呆患者共病发生率更高');
   assert.equal(api.verifiedAnswer('关于阻塞性睡眠呼吸暂停（OSA）对AD的影响，以下哪项错误？'), 'AD患者对CPAP治疗的耐受性极好');
   assert.equal(api.verifiedOptionKey('在 ad 与房颤的关系中，以下哪项是两者共有的风险因素？'), 'C');
+  assert.equal(api.verifiedAnswer('阿尔茨海默病全病程管理的核心是？'), '以单个病人为中心的照护模式');
+  assert.equal(api.verifiedOptionKey('阿尔茨海默病全病程管理的核心是？'), 'B');
+  assert.equal(api.verifiedAnswer('下列哪一项不是ARDS的评估工具（ ）'), 'GCS昏迷评分');
+  assert.equal(api.verifiedOptionKey('下列哪一项不是ARDS的评估工具（ ）'), 'C');
+  assert.equal(api.verifiedAnswer('ARDS患者早期最常见的病理生理改变是（ ）'), '肺泡水肿');
+  assert.equal(api.verifiedOptionKey('ARDS患者早期最常见的病理生理改变是（ ）'), 'B');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {

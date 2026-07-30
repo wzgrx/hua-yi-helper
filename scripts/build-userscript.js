@@ -5,10 +5,19 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const verifiedAnswers = JSON.parse(fs.readFileSync(
+  path.join(root, 'src', 'tampermonkey', 'verified-answers.json'), 'utf8'
+));
+if (!Array.isArray(verifiedAnswers) || verifiedAnswers.some(entry =>
+  !Array.isArray(entry) || entry.length < 2 || !entry[0] || !entry[1]
+)) {
+  throw new Error('src/tampermonkey/verified-answers.json 格式不正确');
+}
 const core = fs.readFileSync(path.join(root, 'src', 'shared', 'core.js'), 'utf8').trim();
 const runtime = fs.readFileSync(path.join(root, 'src', 'tampermonkey', 'runtime.js'), 'utf8')
   .trim()
-  .replace(/__PACKAGE_VERSION__/g, pkg.version);
+  .replace(/__PACKAGE_VERSION__/g, pkg.version)
+  .replace('__VERIFIED_ANSWER_DATA__', JSON.stringify(verifiedAnswers));
 const target = path.join(root, 'src', 'tampermonkey', 'hua-yi-helper.user.js');
 
 const metadata = `// ==UserScript==
