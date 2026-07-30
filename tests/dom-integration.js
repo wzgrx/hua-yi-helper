@@ -286,6 +286,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('在病史采集中，以下哪项属于“精神行为”方面的评估内容？'), '抑郁和焦虑、幻觉和妄想');
   assert.equal(api.verifiedAnswer('在FDG PET显像中，典型的阿尔茨海默病（AD）代谢模式是？'), '枕顶叶为主，额叶其次');
   assert.equal(api.verifiedAnswer('关于基因检测的推荐意见，以下哪项是正确的？'), '有明确痴呆家族史的患者应进行基因检测（A级推荐）');
+  assert.equal(api.verifiedAnswer('以下哪种疾病不属于变性性认知障碍？'), '血管性痴呆（VaD）');
+  assert.equal(api.verifiedAnswer('阿尔茨海默病的典型病理改变不包括以下哪项？'), '路易小体');
+  assert.equal(api.verifiedAnswer('关于认知障碍的病因分类，以下哪项描述符合变性性认知障碍的特点？'), '隐匿起病，进行性加重，症状不可逆');
+  assert.equal(api.verifiedAnswer('在辅助检查中，SWI（磁敏感加权成像）主要用于明确？'), '微出血');
+  assert.equal(api.verifiedAnswer('关于AD血液生物标志物，以下哪项描述是正确的？'), '家族性AD患者血浆总Aβ或Aβ42水平增高');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
