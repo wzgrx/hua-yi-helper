@@ -306,6 +306,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('关于血管性认知障碍（VCI）的Newcastle分型，下列哪项描述正确？'), 'VI型指伴AD的脑血管病变');
   assert.equal(api.verifiedAnswer('根据NIA-AA 2011版诊断标准，下列哪项不属于“很可能的AD痴呆”核心临床标准中的早期突出认知损害表现？'), '早期即出现显著的人格改变和行为异常');
   assert.equal(api.verifiedAnswer('关于行为变异型额颞叶痴呆，不属于核心临床表现-行为症状的是？'), '找词困难和命名障碍');
+  assert.equal(api.verifiedAnswer('AD临床症状出现前β淀粉样蛋白（Aβ）开始沉积的时间为？'), '10~20年');
+  assert.equal(api.verifiedAnswer('导致血浆AD生物标志物检测存在挑战的因素不包括？'), '单一样本可检测多项标志物');
+  assert.equal(api.verifiedAnswer('与神经轴索变性和损伤相关的新型体液生物标志物是？'), '神经丝轻链（NfL）');
+  assert.equal(api.verifiedAnswer('脑脊液标本处理中，受检测前因素影响最大的标志物是？'), 'Aβ42');
+  assert.equal(api.verifiedAnswer('相较于PET影像，脑脊液生物标志物的优势不包括？'), '无创性检测');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
