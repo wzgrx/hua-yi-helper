@@ -497,7 +497,7 @@ function updatePlayerWatch(previous, sample, now = Date.now(), stallMs = 45000) 
   const activelyExpected = !sample.paused && !sample.ended &&
     duration > 0 && playbackPosition + 1 < duration;
   const effectiveStallMs = Number(sample.readyState) <= 2 ?
-    Math.min(stallMs, 20000) : stallMs;
+    Math.min(stallMs, 10000) : stallMs;
   return {
     watch,
     stalled: activelyExpected && now - watch.lastProgressAt >= effectiveStallMs

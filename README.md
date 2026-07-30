@@ -1,4 +1,4 @@
-# 华医网学习助手 v8.3.2
+# 华医网学习助手 v8.3.3
 
 面向华医网继续医学教育流程的跨端自动化实现。v8 将年度学分规划抽成共享核心，并由 Tampermonkey 与 Hermes/Puppeteer 共用：目标年度默认要求 **公需课 5 分**，再从**继续教育**和**全员专项**中选择课程补足**其他 20 分**。
 
@@ -49,7 +49,7 @@ flowchart LR
 
 1. 安装 Tampermonkey。
 2. 打开 <https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js>
-3. 确认版本为 `8.3.2`。
+3. 确认版本为 `8.3.3`。
 4. 登录华医网，打开学习记录页，点击“开始/继续”。
 
 脚本名称保留为“华医网学习助手 v6”，用于让已安装的旧脚本按同一身份原位升级；实际版本由 `@version` 标识。
@@ -95,7 +95,7 @@ $env:HUAYI_PASSWORD = 'PASSWORD'
 
 Hermes 会自动启动本机 OCR 服务，统一处理登录验证码与考试异常验证页，提交并在页面校验失败时刷新重试。也可通过 `HUAYI_CAPTCHA_PORT`、`HUAYI_CAPTCHA_LENGTH` 和 `HUAYI_CAPTCHA_MAX_ATTEMPTS` 调整。账号、密码和验证码均不会写入仓库或运行日志。
 
-长时间无人值守运行使用监督模式。每轮都会完整回收浏览器和 OCR 资源；异常、页面暂停或单轮超时后按配置重启，并通过单实例锁避免重复运行。运行器还会用浏览器原生输入处理播放器受保护提示；媒体在低就绪态连续 20 秒没有进度时自动刷新并从站点断点恢复。`status.json` 使用原子替换写入，完整事件追加到 `events.ndjson`：
+长时间无人值守运行使用监督模式。每轮都会完整回收浏览器和 OCR 资源；异常、页面暂停或单轮超时后按配置重启，并通过单实例锁避免重复运行。运行器还会用浏览器原生输入处理播放器受保护提示；媒体在低就绪态连续 10 秒没有进度时自动刷新并从站点断点恢复。`status.json` 使用原子替换写入，完整事件追加到 `events.ndjson`：
 
 ```powershell
 .\bin\huayi-hermes.ps1 `
