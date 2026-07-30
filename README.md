@@ -36,7 +36,7 @@
 1. 安装 Tampermonkey。
 2. 打开：
    <https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js>
-3. 确认安装版本为 `7.0.0`。
+3. 确认安装版本为 `7.1.0`。
 4. 打开华医网学习记录页，点击面板中的“开始/继续”。
 
 如果播放器提示存在异常插件，应停用其他会注入所有网站的用户脚本或视频增强扩展。v7 本身不会修改播放器。
@@ -47,6 +47,7 @@
 src/tampermonkey/hua-yi-helper.user.js  # 唯一运行实现
 tests/run-all.js                        # 模块契约测试
 tests/dom-integration.js                # 真实 DOM 格式行为测试
+tests/async-integration.js              # 异步渲染与恢复测试
 tests/source-quality.js                 # 语法、版本和禁止行为检查
 ```
 
@@ -56,6 +57,16 @@ tests/source-quality.js                 # 语法、版本和禁止行为检查
 npm install
 npm test
 ```
+
+## v7.1.0 修复
+
+- 学习记录、课件列表、考试题目和结果页增加异步加载等待，避免页面尚未渲染就误跳转或停止。
+- 学分识别兼容 `2.0学分` 与 `5分`，年度筛选跟随当前年份。
+- 课程详情兼容 `href`、`data-href` 和 `onclick` 三类真实入口。
+- 未通过考试时从结果页学习已答对题目，下一轮固定正确题，只遍历仍未知的题目。
+- 验证码与登录页改为明确等待状态，不再当作空白考试页处理。
+- 课程目录过滤已完成项目并记录本轮已尝试课程，避免总是进入第一门课程。
+- 重复注入时清理全部旧面板，互动病例按钮增加重复点击冷却。
 
 ## 安全与隐私
 

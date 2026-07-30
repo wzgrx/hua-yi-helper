@@ -4,7 +4,7 @@ const assert = require('assert');
 const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'tampermonkey', 'hua-yi-helper.user.js'), 'utf8');
 const checks = [
   ['UserScript 元数据', /==UserScript==/.test(source)],
-  ['v7 版本', /@version\s+7\.0\.\d+/.test(source)],
+  ['v7 版本', /@version\s+7\.\d+\.\d+/.test(source)],
   ['顶层页面隔离', /@noframes/.test(source)],
   ['无外部依赖', !/@require\s/.test(source)],
   ['单一 v7 状态', /HY7_STATE/.test(source)],
@@ -15,6 +15,7 @@ const checks = [
   ['原生播放器桥接', /handlePlayer/.test(source)],
   ['考试路由', /handleExam/.test(source)],
   ['结果路由', /handleResult/.test(source)],
+  ['验证码等待路由', /handleCaptcha/.test(source)],
   ['证书路由', /handleCertificate/.test(source)],
   ['培训卡路由', /handleCard/.test(source)],
   ['问卷路由', /handleSurvey/.test(source)],
@@ -22,6 +23,8 @@ const checks = [
   ['课程目录路由', /handleCatalog/.test(source)],
   ['待考试直达真实 cwid', /exam\.aspx\?cwid=/.test(source)],
   ['确定性考试组合', /examState\.attempt/.test(source)],
+  ['结果页正确答案学习', /saveLearnedAnswers/.test(source)],
+  ['异步页面加载重试', /等待学习记录加载/.test(source) && /等待课件列表加载/.test(source) && /等待考试题目加载/.test(source)],
   ['真实验证题库', /var VERIFIED/.test(source)]
 ];
 let failed = 0;

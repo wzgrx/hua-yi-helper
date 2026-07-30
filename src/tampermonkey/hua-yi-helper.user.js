@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         华医网学习助手 v6
 // @namespace    https://github.com/wzgrx/hua-yi-helper
-// @version      7.0.3
+// @version      7.1.0
 // @description  基于2026真实页面重写的华医网学习流程助手：课程、原生播放、考试、证书与断点恢复
 // @author       wzgrx
 // @license      AGPL-3.0
@@ -13,15 +13,15 @@
 // @grant        GM_info
 // @run-at       document-start
 // @noframes
-// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.3
-// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.0.3
+// @downloadURL  https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.1.0
+// @updateURL    https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js?v=7.1.0
 // @supportURL   https://github.com/wzgrx/hua-yi-helper/issues
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  var VERSION = '7.0.3';
+  var VERSION = '7.1.0';
   var STATE_KEY = 'HY7_STATE';
   var ANSWER_KEY = 'HY7_ANSWERS';
   var EXAM_KEY = 'HY7_EXAMS';
@@ -161,7 +161,8 @@
     return {
       running: !!read('HY_Running', false), paused: false, phase: 'idle',
       message: '就绪', credit: 0, currentCourseUrl: '', currentCourseName: '',
-      currentCwid: '', lastRoute: '', lastActionAt: 0, logs: []
+      currentCwid: '', lastRoute: '', lastActionAt: 0,
+      catalogYear: new Date().getFullYear(), catalogVisited: [], logs: []
     };
   }
   var state = Object.assign(defaultState(), read(STATE_KEY, {}));
@@ -185,7 +186,8 @@
     if (/apply_certificate(?:_top)?\.aspx$/.test(path)) return 'certificate';
     if (/card_select\.aspx$/.test(path)) return 'card';
     if (/exam_result(?:_hd)?\.aspx$/.test(path)) return 'result';
-    if (/exam(?:_code)?\.aspx$/.test(path)) return 'exam';
+    if (/exam_code\.aspx$/.test(path)) return 'captcha';
+    if (/exam\.aspx$/.test(path)) return 'exam';
     if (/course_ware_(?:polyv|cc)\.aspx$/.test(path)) return 'player';
     if (/\/pages\/course\.aspx$/.test(path) && queryParam('cid')) return 'course';
     if (/\/cme\/(?:index|fme)/.test(path) || /\/pages\/(?:cme|fme)\.aspx$/.test(path)) return 'catalog';
@@ -196,11 +198,7 @@
   var shadow = null;
   function cleanupLegacyPanels() {
     Array.from(document.querySelectorAll('#HY7_HOST')).forEach(function (node) {
-      var text = '';
-      try { text = node.shadowRoot ? node.shadowRoot.textContent || '' : node.textContent || ''; } catch (_) {}
-      if (!text || text.indexOf('华医助手 v' + VERSION) < 0) {
-        try { node.remove(); } catch (_) {}
-      }
+      try { node.remove(); } catch (_) {}
     });
   }
   function createUI() {
@@ -262,15 +260,17 @@
   }
 
   function scanStudy() {
-    var rows = Array.from(document.querySelectorAll('table tbody tr'));
-    var result = { credit: 0, courses: [] };
+    var rows = Array.from(document.querySelectorAll('table tr'));
+    var currentYear = String(new Date().getFullYear());
+    var result = { credit: 0, courses: [], ready: false };
     rows.forEach(function (row) {
       var cells = Array.from(row.querySelectorAll('td'));
       if (cells.length < 6) return;
+      result.ready = true;
       var text = clean(row.innerText || row.textContent);
-      if (!/2026/.test(text)) return;
-      var creditCell = cells.find(function (cell) { return /学分/.test(cell.textContent || ''); });
-      var creditMatch = clean(creditCell ? creditCell.textContent : '').match(/(\d+(?:\.\d+)?)\s*学分/);
+      if (text.indexOf(currentYear) < 0) return;
+      var creditCell = cells.find(function (cell) { return /\d+(?:\.\d+)?\s*学?\s*分/.test(cell.textContent || ''); });
+      var creditMatch = clean(creditCell ? creditCell.textContent : '').match(/(\d+(?:\.\d+)?)\s*学?\s*分/);
       var credit = creditMatch ? Number(creditMatch[1]) : 0;
       var status = /已申请/.test(text) ? '已申请' : (/学习完毕/.test(text) ? '学习完毕' : (/学习中/.test(text) ? '学习中' : '未学习'));
       if (status === '已申请') result.credit += credit;
@@ -284,14 +284,24 @@
     return result;
   }
 
-  function handleStudy() {
+  function handleStudy(retry) {
+    retry = Number(retry || 0);
     var info = scanStudy();
+    if (!info.ready) {
+      if (retry < 30) {
+        setState({ phase: 'study', message: '等待学习记录加载（' + (retry + 1) + '/30）' });
+        setTimeout(function () { if (route() === 'study') handleStudy(retry + 1); }, 500);
+      } else {
+        setState({ running: false, phase: 'study', message: '学习记录加载超时，请刷新后继续' });
+      }
+      return;
+    }
     setState({ credit: info.credit, phase: 'study', message: '已申请 ' + info.credit + ' 分' });
     log('[学习记录] 已申请 ' + info.credit + ' 分，共 ' + info.courses.length + ' 门课程');
     if (!state.running) return;
     if (info.credit >= TARGET) { setState({ running: false, phase: 'done', message: '目标学分已完成' }); return; }
-    var task = info.courses.find(function (item) { return /申请证书/.test(item.action); }) ||
-      info.courses.find(function (item) { return item.status !== '已申请' && item.url; });
+    var task = info.courses.find(function (item) { return /申请证书|申请学分/.test(item.action) && item.url; }) ||
+      info.courses.find(function (item) { return (item.status === '学习中' || item.status === '未学习') && item.url; });
     if (task) {
       setState({ currentCourseUrl: task.url, currentCourseName: task.name, phase: 'course', message: '进入：' + task.name });
       navigate(task.url);
@@ -302,18 +312,35 @@
   }
 
   function scanCoursewares() {
-    return Array.from(document.querySelectorAll('a.cw-title-link[href*="cwid="],a[href*="course_ware.aspx?cwid="]')).map(function (link) {
-      var box = link.closest('.course, tr, [class*="course-item"]') || link.parentElement;
-      var text = clean(box ? box.innerText || box.textContent : link.textContent);
+    var nodes = uniqueElements(Array.from(document.querySelectorAll(
+      'a.cw-title-link[href*="cwid="],a[href*="course_ware.aspx?cwid="],' +
+      '.course[data-href*="cwid="],[class*="course-item"][data-href*="cwid="],[onclick*="cwid="]'
+    )));
+    return nodes.map(function (node) {
+      var url = node.href || node.getAttribute('data-href') || extractActionUrl(node);
+      var box = node.closest('.course, tr, [class*="course-item"]') || node.parentElement;
+      var title = node.matches('a') ? node : node.querySelector('a.cw-title-link,[class*="title"]');
+      var text = clean(box ? box.innerText || box.textContent : node.textContent);
       var status = /待考试/.test(text) ? '待考试' : (/已完成/.test(text) ? '已完成' : (/学习中/.test(text) ? '学习中' : (/互动/.test(text) ? '互动' : '未学习')));
-      return { name: clean(link.textContent), url: link.href, cwid: queryParam('cwid', link.href), status: status };
+      var fullUrl = absolute(url);
+      return { name: clean(title ? title.textContent : node.textContent), url: fullUrl, cwid: queryParam('cwid', fullUrl), status: status };
     }).filter(function (item, index, all) { return item.cwid && all.findIndex(function (other) { return other.cwid === item.cwid; }) === index; });
   }
 
-  function handleCourse() {
+  function handleCourse(retry) {
+    retry = Number(retry || 0);
     var items = scanCoursewares();
     log('[课程] 识别到 ' + items.length + ' 个课件');
-    if (!state.running || !items.length) return;
+    if (!state.running) return;
+    if (!items.length) {
+      if (retry < 30) {
+        setState({ phase: 'course', message: '等待课件列表加载（' + (retry + 1) + '/30）' });
+        setTimeout(function () { if (route() === 'course') handleCourse(retry + 1); }, 500);
+      } else {
+        setState({ running: false, phase: 'course', message: '课件列表加载超时，请刷新后继续' });
+      }
+      return;
+    }
     var pending = items.find(function (item) { return item.status === '待考试'; });
     if (pending) {
       setState({ currentCwid: pending.cwid, phase: 'exam', message: '考试：' + pending.name });
@@ -393,7 +420,8 @@
   function chooseAnswers(questions, examState) {
     var learned = read(ANSWER_KEY, {});
     var attempt = Number(examState.attempt || 0);
-    return questions.map(function (item, index) {
+    var divisor = 1;
+    return questions.map(function (item) {
       var known = learned[item.key] || verifiedAnswer(item.question);
       if (known) {
         var nk = normalize(known);
@@ -401,31 +429,61 @@
         if (exact) return exact;
       }
       var ranked = item.options.slice().sort(function (a, b) { return scoreOption(item.question, b.text) - scoreOption(item.question, a.text); });
-      var divisor = 1;
-      for (var d = 0; d < index; d++) divisor *= Math.max(1, questions[d].options.length);
-      return ranked[Math.floor(attempt / divisor) % ranked.length];
+      var choice = ranked[Math.floor(attempt / divisor) % ranked.length];
+      divisor *= Math.max(1, ranked.length);
+      return choice;
     });
   }
-  function handleExam() {
+  function answerCombinationCount(questions) {
+    var learned = read(ANSWER_KEY, {});
+    return questions.reduce(function (total, item) {
+      var known = learned[item.key] || verifiedAnswer(item.question);
+      var knownKey = normalize(known);
+      var fixed = knownKey && item.options.some(function (option) { return normalize(option.text) === knownKey; });
+      if (fixed) return total;
+      return Math.min(Number.MAX_SAFE_INTEGER, total * Math.max(1, item.options.length));
+    }, 1);
+  }
+  function handleExam(retry) {
+    retry = Number(retry || 0);
     if (!state.running) return;
     var questions = parseExam();
-    if (!questions.length) { log('[考试] 未识别到题目，停止自动提交'); setState({ running: false, message: '未识别到考试题目' }); return; }
+    if (!questions.length) {
+      if (retry < 30) {
+        setState({ phase: 'exam', message: '等待考试题目加载（' + (retry + 1) + '/30）' });
+        setTimeout(function () { if (route() === 'exam') handleExam(retry + 1); }, 500);
+      } else {
+        log('[考试] 未识别到题目，停止自动提交');
+        setState({ running: false, message: '考试题目加载超时或题型不受支持' });
+      }
+      return;
+    }
     var cwid = queryParam('cwid') || state.currentCwid;
     var exams = read(EXAM_KEY, {});
     var examState = exams[cwid] || { attempt: 0, submitted: {} };
+    var combinations = answerCombinationCount(questions);
+    if (Number(examState.attempt || 0) >= combinations) {
+      setState({ running: false, phase: 'exam', message: '所有可识别答案组合均已尝试，已停止以避免循环' });
+      return;
+    }
     var choices = chooseAnswers(questions, examState);
     setState({ phase: 'exam', message: '正在选择 ' + questions.length + ' 道题（第' + (examState.attempt + 1) + '次）' });
     choices.forEach(function (choice, index) {
       setTimeout(function () {
         if (!state.running || !choice || !choice.input) return;
         choice.input.click();
+        if (!choice.input.checked) {
+          choice.input.checked = true;
+          choice.input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         examState.submitted[questions[index].key] = choice.text;
         exams[cwid] = examState; write(EXAM_KEY, exams);
         if (index === choices.length - 1) {
           setState({ message: '已完成 ' + choices.length + ' 道题，准备提交' });
           setTimeout(function () {
             if (!state.running) return;
-            var submit = document.getElementById('btn_submit') || Array.from(document.querySelectorAll('input[type="image"],input[type="submit"],button[type="submit"]')).find(enabled);
+            var submit = document.getElementById('btn_submit');
+            if (!enabled(submit)) submit = Array.from(document.querySelectorAll('input[type="image"],input[type="submit"],button[type="submit"]')).find(enabled);
             if (submit && enabled(submit)) submit.click();
             else { log('[考试] 未找到唯一提交按钮'); setState({ running: false, message: '提交按钮识别失败' }); }
           }, 3500);
@@ -434,26 +492,68 @@
     });
   }
 
-  function parseResultAnswers() {
-    var text = pageText();
-    var blocks = text.split(/(?=\d+[、.])/);
-    return blocks.map(function (block) {
-      var q = block.match(/^\d+[、.]\s*([^【\n]+)/);
-      var a = block.match(/您的答案[：:]\s*[A-E][、.．]\s*([^】\n]+)/);
-      return q && a ? { key: normalize(q[1]).slice(0, 100), answer: clean(a[1]) } : null;
+  function resultCorrect(block, image) {
+    var signal = [
+      image ? image.src : '', image ? image.alt : '', image ? image.title : '',
+      block ? block.className : ''
+    ].join(' ');
+    if (/wrong|error|cha_img|错误|答错/i.test(signal)) return false;
+    if (/bar_img|right|correct|正确|答对/i.test(signal)) return true;
+    return null;
+  }
+  function parseResultAnswers(submitted) {
+    submitted = submitted || {};
+    var body = pageText();
+    var items = Array.from(document.querySelectorAll('.state_cour_lis'));
+    if (items.length) {
+      return items.map(function (block) {
+        var questionNode = block.querySelector('p[title],p,.q_name,th');
+        if (!questionNode) return null;
+        var question = clean(questionNode.getAttribute('title') || questionNode.textContent);
+        var key = normalize(question).slice(0, 100);
+        var image = block.querySelector('img');
+        var local = clean(block.parentElement ? block.parentElement.innerText || block.parentElement.textContent : block.textContent);
+        var escaped = clean(question).replace(/^\d+[、.．)\]\s]+/, '').slice(0, 12).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var match = local.match(/您的答案[：:]\s*(?:[A-Z][、.．)\s]*)?([^】\n]+)/i) ||
+          body.match(new RegExp(escaped + '[\\s\\S]{0,500}?您的答案[：:]\\s*(?:[A-Z][、.．)\\s]*)?([^】\\n]+)', 'i'));
+        return { key: key, answer: clean(match && match[1] ? match[1] : submitted[key]), correct: resultCorrect(block, image) };
+      }).filter(Boolean);
+    }
+    return body.split(/(?=\d+[、.．])/).map(function (block) {
+      var questionMatch = block.match(/^\d+[、.．]\s*([^【\n]+)/);
+      var answerMatch = block.match(/您的答案[：:]\s*(?:[A-Z][、.．)\s]*)?([^】\n]+)/i);
+      if (!questionMatch) return null;
+      var key = normalize(questionMatch[1]).slice(0, 100);
+      return { key: key, answer: clean(answerMatch && answerMatch[1] ? answerMatch[1] : submitted[key]), correct: null };
     }).filter(Boolean);
   }
-  function handleResult() {
+  function saveLearnedAnswers(records) {
+    var learned = read(ANSWER_KEY, {});
+    var changed = 0;
+    records.forEach(function (entry) {
+      if (entry.correct === true && entry.key && entry.answer && learned[entry.key] !== entry.answer) {
+        learned[entry.key] = entry.answer;
+        changed++;
+      }
+    });
+    if (changed) write(ANSWER_KEY, learned);
+    return changed;
+  }
+  function handleResult(retry) {
+    retry = Number(retry || 0);
     if (!state.running) return;
     var text = pageText();
     var cwid = queryParam('cwid') || state.currentCwid;
     var exams = read(EXAM_KEY, {});
     var examState = exams[cwid] || { attempt: 0, submitted: {} };
+    var resultRecords = parseResultAnswers(examState.submitted);
+    var learnedCount = saveLearnedAnswers(resultRecords);
     if (/考试未通过|未通过/.test(text)) {
       examState.attempt = Number(examState.attempt || 0) + 1;
-      parseResultAnswers().forEach(function (entry) { examState.submitted[entry.key] = entry.answer; });
+      resultRecords.forEach(function (entry) { if (entry.key && entry.answer) examState.submitted[entry.key] = entry.answer; });
       exams[cwid] = examState; write(EXAM_KEY, exams);
-      setState({ phase: 'result', message: '本次未通过，准备第' + (examState.attempt + 1) + '次组合' });
+      setState({ phase: 'result', message: '本次未通过，已学习 ' + learnedCount + ' 题，准备第' + (examState.attempt + 1) + '次组合' });
+      if (!cwid) { setState({ running: false, message: '考试结果缺少 cwid，已停止以避免循环' }); return; }
       setTimeout(function () { if (state.running) navigate('/pages/exam.aspx?cwid=' + encodeURIComponent(cwid)); }, 2500);
       return;
     }
@@ -463,7 +563,12 @@
       setTimeout(function () { navigate(state.currentCourseUrl || '/pages/study_info_list.aspx'); }, 1800);
       return;
     }
-    setState({ running: false, message: '无法确认考试结果，已停止' });
+    if (retry < 20) {
+      setState({ phase: 'result', message: '等待考试结果加载（' + (retry + 1) + '/20）' });
+      setTimeout(function () { if (route() === 'result') handleResult(retry + 1); }, 500);
+    } else {
+      setState({ running: false, message: '无法确认考试结果，已停止' });
+    }
   }
 
   function handleCertificate() {
@@ -476,7 +581,8 @@
     });
     Array.from(document.querySelectorAll('textarea')).forEach(function (area) { if (!area.value) area.value = '满意'; });
     var apply = Array.from(document.querySelectorAll('button,input[type="button"],input[type="submit"],a')).find(function (element) {
-      return enabled(element) && /申请|确认/.test(clean(element.value || element.textContent));
+      var text = clean(element.value || element.textContent);
+      return enabled(element) && /申请|确认/.test(text) && !/取消|撤销|退回/.test(text);
     });
     if (apply) { setState({ phase: 'certificate', message: '正在申请证书/学分' }); setTimeout(function () { apply.click(); }, 1200); }
     else { setState({ running: false, message: '未找到证书申请按钮' }); }
@@ -485,6 +591,17 @@
   function handleCard() {
     var text = document.body ? document.body.innerText || '' : '';
     if (/可用培训卡\s*\(?0\)?|这里空空的|暂无.*培训卡/.test(text)) setState({ running: false, paused: true, phase: 'card', message: '没有可用培训卡' });
+    else setState({ running: false, paused: true, phase: 'card', message: '检测到培训卡选择页，请确认卡片后点击开始/继续' });
+  }
+
+  function handleLogin() {
+    setState({ phase: 'login', message: '等待登录；登录成功后将自动恢复流程' });
+  }
+
+  function handleCaptcha() {
+    setState({ phase: 'captcha', message: '请完成页面验证码；验证成功后将自动继续' });
+    var input = document.querySelector('input[type="text"],input[name*="code" i],input[id*="code" i]');
+    if (input) try { input.focus(); } catch (_) {}
   }
 
   function handleSurvey() {
@@ -527,12 +644,18 @@
 
   function handleCase() {
     if (!state.running) return;
+    var lastActionElement = null;
+    var lastActionAt = 0;
     window.__HY7_TIMER = setInterval(function () {
       if (!state.running) { clearInterval(window.__HY7_TIMER); return; }
       var action = findCaseAction();
       if (action) {
-        log('[病例] 点击：' + action.text);
-        humanClick(action.element);
+        if (action.element !== lastActionElement || Date.now() - lastActionAt >= 3500) {
+          lastActionElement = action.element;
+          lastActionAt = Date.now();
+          log('[病例] 点击：' + action.text);
+          humanClick(action.element);
+        }
       } else {
         var video = caseVideoStatus();
         if (video.active && !video.done) setState({ phase: 'case', message: '病例视频观看中，剩余约 ' + Math.ceil(video.remaining / 60) + ' 分钟' });
@@ -545,9 +668,36 @@
   function handleCatalog() {
     if (!state.running) return;
     var cards = Array.from(document.querySelectorAll('.jet_lis,[class*="course-card"],li')).filter(function (card) { return card.querySelector('a[href*="course.aspx?cid="]'); });
-    var candidate = cards.map(function (card) { var link = card.querySelector('a[href*="course.aspx?cid="]'); return { name: clean(card.innerText || card.textContent).split(' ')[0], url: link.href }; })[0];
-    if (candidate) { setState({ currentCourseUrl: candidate.url, currentCourseName: candidate.name, phase: 'course', message: '选择新课程' }); navigate(candidate.url); }
-    else setState({ running: false, message: '课程目录未找到可用课程' });
+    var currentYear = new Date().getFullYear();
+    var visited = state.catalogYear === currentYear && Array.isArray(state.catalogVisited) ? state.catalogVisited : [];
+    var candidates = cards.map(function (card) {
+      var link = card.querySelector('a[href*="course.aspx?cid="]');
+      var text = clean(card.innerText || card.textContent);
+      return { name: clean(link.textContent) || text.split(' ')[0], url: link.href, text: text };
+    }).filter(function (item, index, all) {
+      return !/已完成|已申请|学习完毕/.test(item.text) &&
+        visited.indexOf(item.url) < 0 &&
+        all.findIndex(function (other) { return other.url === item.url; }) === index;
+    });
+    var candidate = candidates[0];
+    if (candidate) {
+      setState({
+        currentCourseUrl: candidate.url,
+        currentCourseName: candidate.name,
+        catalogYear: currentYear,
+        catalogVisited: visited.concat(candidate.url).slice(-100),
+        phase: 'course',
+        message: '选择新课程：' + candidate.name
+      });
+      navigate(candidate.url);
+    } else {
+      setState({
+        running: false,
+        catalogYear: currentYear,
+        catalogVisited: cards.length ? [] : visited,
+        message: cards.length ? '课程目录已无未尝试课程；再次开始可重新扫描' : '课程目录未找到可用课程'
+      });
+    }
   }
 
   function runRoute(force) {
@@ -562,6 +712,8 @@
     else if (current === 'result') handleResult();
     else if (current === 'certificate') handleCertificate();
     else if (current === 'card') handleCard();
+    else if (current === 'login') handleLogin();
+    else if (current === 'captcha') handleCaptcha();
     else if (current === 'survey') handleSurvey();
     else if (current === 'case') handleCase();
     else if (current === 'catalog') handleCatalog();
@@ -572,7 +724,12 @@
   else setTimeout(init, 0);
 
   if (window.__HY_TEST_MODE__) {
-    window.__HY7_TEST_API__ = { route: route, scanStudy: scanStudy, scanCoursewares: scanCoursewares, parseExam: parseExam, verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, enabled: enabled, normalize: normalize, findCaseAction: findCaseAction, caseVideoStatus: caseVideoStatus };
+    window.__HY7_TEST_API__ = {
+      route: route, scanStudy: scanStudy, scanCoursewares: scanCoursewares,
+      parseExam: parseExam, parseResultAnswers: parseResultAnswers, saveLearnedAnswers: saveLearnedAnswers,
+      verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, answerCombinationCount: answerCombinationCount,
+      enabled: enabled, normalize: normalize, findCaseAction: findCaseAction, caseVideoStatus: caseVideoStatus
+    };
     init();
   }
 })();

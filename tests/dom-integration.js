@@ -19,12 +19,13 @@ function test(name, fn) { fn(); console.log(`✅ ${name}`); }
 test('路由识别真实页面', () => {
   assert.equal(boot('', 'https://cme28.91huayi.com/pages/study_info_list.aspx').api.route(), 'study');
   assert.equal(boot('', 'https://cme28.91huayi.com/pages/exam.aspx?cwid=x').api.route(), 'exam');
+  assert.equal(boot('', 'https://cme28.91huayi.com/pages/exam_code.aspx?cwid=x').api.route(), 'captcha');
   assert.equal(boot('', 'https://cme28.91huayi.com/course_ware/course_ware_polyv.aspx?cwid=x').api.route(), 'player');
 });
 
 test('学习记录仅累计已申请学分并提取动作', () => {
   const { api } = boot(`<table><tbody>
-    <tr><td><a href="course.aspx?cid=a">公需课</a></td><td>2026</td><td>5学分</td><td>已申请</td><td></td><td></td><td>10/10</td><td></td></tr>
+    <tr><td><a href="course.aspx?cid=a">公需课</a></td><td>2026</td><td>公需课5分</td><td>已申请</td><td></td><td></td><td>10/10</td><td></td></tr>
     <tr><td><a href="course.aspx?cid=b">专科课</a></td><td>2026</td><td>3学分</td><td>学习中</td><td></td><td></td><td>2/5</td><td><button onclick="location.href='course.aspx?cid=b'">继续学习</button></td></tr>
   </tbody></table>`, 'https://cme28.91huayi.com/pages/study_info_list.aspx');
   const info = api.scanStudy();
@@ -35,9 +36,10 @@ test('学习记录仅累计已申请学分并提取动作', () => {
 
 test('课程详情解析真实状态与 cwid', () => {
   const { api } = boot(`<div class="course"><a class="cw-title-link" href="/course_ware/course_ware.aspx?cwid=one">课件一</a><button>已完成</button></div>
-  <div class="course"><a class="cw-title-link" href="/course_ware/course_ware.aspx?cwid=two">课件二</a><button>待考试</button></div>`);
+  <div class="course"><a class="cw-title-link" href="/course_ware/course_ware.aspx?cwid=two">课件二</a><button>待考试</button></div>
+  <div class="course" data-href="/course_ware/course_ware.aspx?cwid=three"><span class="course-title">课件三</span><button>学习中</button></div>`);
   const rows = api.scanCoursewares();
-  assert.deepEqual(Array.from(rows, x => [x.cwid, x.status]), [['one','已完成'],['two','待考试']]);
+  assert.deepEqual(Array.from(rows, x => [x.cwid, x.status]), [['one','已完成'],['two','待考试'],['three','学习中']]);
 });
 
 test('考试按 name 分组并提取五道真实格式题', () => {
@@ -60,6 +62,34 @@ test('未知题使用确定性组合且每轮变化', () => {
   const first = Array.from(api.chooseAnswers(questions, {attempt:0}), x=>x.text);
   const second = Array.from(api.chooseAnswers(questions, {attempt:1}), x=>x.text);
   assert.notDeepEqual(first, second);
+});
+
+test('已学习题目不占未知题组合进位', () => {
+  const questions = [
+    { question:'已知题', key:'known', options:[{text:'固定答案'},{text:'其他答案'}] },
+    { question:'未知题', key:'unknown', options:[{text:'选项A'},{text:'选项B'}] }
+  ];
+  const firstBoot = boot('', undefined, { HY7_ANSWERS: { known: '固定答案' } });
+  const first = Array.from(firstBoot.api.chooseAnswers(questions, { attempt: 0 }), x => x.text);
+  const second = Array.from(firstBoot.api.chooseAnswers(questions, { attempt: 1 }), x => x.text);
+  assert.equal(first[0], '固定答案');
+  assert.equal(second[0], '固定答案');
+  assert.notEqual(first[1], second[1]);
+  assert.equal(firstBoot.api.answerCombinationCount(questions), 2);
+});
+
+test('结果页仅学习判定正确的题目', () => {
+  const { api, values } = boot(`
+    <section><div class="state_cour_lis"><img src="/images/bar_img.png"><p title="1、第一题">第一题</p></div><div>【您的答案：B、正确答案】</div></section>
+    <section><div class="state_cour_lis"><img src="/images/wrong.png"><p title="2、第二题">第二题</p></div><div>【您的答案：A、错误答案】</div></section>
+  `, 'https://cme28.91huayi.com/pages/exam_result.aspx?cwid=x');
+  const records = api.parseResultAnswers({ 第一题: '正确答案', 第二题: '错误答案' });
+  assert.equal(records.length, 2);
+  assert.deepEqual(Array.from(records, item => item.correct), [true, false]);
+  assert.equal(api.saveLearnedAnswers(records), 1);
+  const learned = values.get('HY7_ANSWERS');
+  assert.equal(learned[records[0].key], '正确答案');
+  assert.equal(learned[records[1].key], undefined);
 });
 
 test('互动病例能识别普通 div/span 可点击动作', () => {
@@ -95,10 +125,10 @@ test('互动病例内嵌视频结束后允许点击下一页', () => {
 });
 
 test('新脚本启动时清理旧 HY7 面板', () => {
-  const { window } = boot('<div id=\"HY7_HOST\"></div><main>内容</main>', 'https://hdbl.91huayi.com/?x=1#/home');
+  const { window } = boot('<div id=\"HY7_HOST\"></div><div id=\"HY7_HOST\"></div><main>内容</main>', 'https://hdbl.91huayi.com/?x=1#/home');
   const hosts = window.document.querySelectorAll('#HY7_HOST');
   assert.equal(hosts.length, 1);
-  assert.match(hosts[0].shadowRoot.textContent, /华医助手 v7\.0\./);
+  assert.match(hosts[0].shadowRoot.textContent, /华医助手 v7\.\d+\.\d+/);
 });
 
 test('disabled 与 aria-disabled 均不可用', () => {
