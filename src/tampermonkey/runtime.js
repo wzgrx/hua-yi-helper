@@ -1004,7 +1004,12 @@
     ['属于BPSD早期识别量表', '神经精神问卷（NPI）'],
     ['诊治BPSD的价值不包括', '与认知障碍及日常生活能力下降互不影响'],
     ['痴呆临床表现的ABC症状中，A代表', '日常生活能力下降'],
-    ['路易体痴呆（DLB）的BPSD核心特点', '幻觉早而明显']
+    ['路易体痴呆（DLB）的BPSD核心特点', '幻觉早而明显'],
+    ['属于激越中言语攻击性行为', '发出怪声'],
+    ['关于BPSD的临床特点，以下表述错误', '精神症状仅在痴呆中晚期出现'],
+    ['属于激越中身体非攻击性行为', '不恰当的处理事情'],
+    ['美金刚显著预防AD患者以下哪项BPSD症状', '激越/攻击'],
+    ['AD患者激越发生率随CDR分期变化的趋势', '逐渐升高']
   ];
   function verifiedAnswer(question) {
     var q = clean(question).replace(/m²/g, 'm2');
@@ -1038,40 +1043,55 @@
   function chooseAnswers(questions, examState) {
     var learned = read(ANSWER_KEY, {});
     var attempt = Number(examState.attempt || 0);
+    var rejected = examState.rejected || {};
     var divisor = 1;
     return questions.map(function (item) {
       var known = learned[item.key] || verifiedAnswer(item.question);
+      var rejectedKeys = Array.isArray(rejected[item.key]) ? rejected[item.key].map(normalize) : [];
       if (known) {
         var nk = normalize(known);
-        var exact = item.options.find(function (option) { return normalize(option.text) === nk; });
+        var exact = rejectedKeys.indexOf(nk) < 0 && item.options.find(function (option) { return normalize(option.text) === nk; });
         if (exact) return exact;
       }
-      var ranked = item.options.slice().sort(function (a, b) { return scoreOption(item.question, b.text) - scoreOption(item.question, a.text); });
+      var available = item.options.filter(function (option) {
+        return rejectedKeys.indexOf(normalize(option.text)) < 0;
+      });
+      if (!available.length) available = item.options.slice();
+      var ranked = available.sort(function (a, b) { return scoreOption(item.question, b.text) - scoreOption(item.question, a.text); });
       var choice = ranked[Math.floor(attempt / divisor) % ranked.length];
       divisor *= Math.max(1, ranked.length);
       return choice;
     });
   }
-  function fixedAnswerSignature(questions, choices) {
+  function fixedAnswerSignature(questions, choices, examState) {
     var learned = read(ANSWER_KEY, {});
+    var rejected = examState && examState.rejected || {};
     var fixed = questions.every(function (item) {
       var known = learned[item.key] || verifiedAnswer(item.question);
       var knownKey = normalize(known);
-      return knownKey && item.options.some(function (option) { return normalize(option.text) === knownKey; });
+      var rejectedKeys = Array.isArray(rejected[item.key]) ? rejected[item.key].map(normalize) : [];
+      return knownKey && rejectedKeys.indexOf(knownKey) < 0 &&
+        item.options.some(function (option) { return normalize(option.text) === knownKey; });
     });
     if (!fixed) return '';
     return choices.map(function (choice, index) {
       return questions[index].key + '=' + normalize(choice && choice.text);
     }).join('|');
   }
-  function answerCombinationCount(questions) {
+  function answerCombinationCount(questions, examState) {
     var learned = read(ANSWER_KEY, {});
+    var rejected = examState && examState.rejected || {};
     return questions.reduce(function (total, item) {
       var known = learned[item.key] || verifiedAnswer(item.question);
       var knownKey = normalize(known);
-      var fixed = knownKey && item.options.some(function (option) { return normalize(option.text) === knownKey; });
+      var rejectedKeys = Array.isArray(rejected[item.key]) ? rejected[item.key].map(normalize) : [];
+      var fixed = knownKey && rejectedKeys.indexOf(knownKey) < 0 &&
+        item.options.some(function (option) { return normalize(option.text) === knownKey; });
       if (fixed) return total;
-      return Math.min(Number.MAX_SAFE_INTEGER, total * Math.max(1, item.options.length));
+      var availableCount = item.options.filter(function (option) {
+        return rejectedKeys.indexOf(normalize(option.text)) < 0;
+      }).length;
+      return Math.min(Number.MAX_SAFE_INTEGER, total * Math.max(1, availableCount));
     }, 1);
   }
   function handleExam(retry) {
@@ -1091,9 +1111,9 @@
     var cwid = queryParam('cwid') || state.currentCwid;
     var exams = read(EXAM_KEY, {});
     var examState = exams[cwid] || { attempt: 0, submitted: {} };
-    var combinations = answerCombinationCount(questions);
+    var combinations = answerCombinationCount(questions, examState);
     var choices = chooseAnswers(questions, examState);
-    var fixedSignature = fixedAnswerSignature(questions, choices);
+    var fixedSignature = fixedAnswerSignature(questions, choices, examState);
     if (fixedSignature && examState.fixedSignatureAttempted === fixedSignature) {
       setState({ running: false, phase: 'exam', message: '当前已知答案组合已提交过，已停止重复提交' });
       return;
@@ -1186,6 +1206,21 @@
     if (changed) write(ANSWER_KEY, learned);
     return changed;
   }
+  function saveRejectedAnswers(records, examState) {
+    examState.rejected = examState.rejected || {};
+    var changed = 0;
+    records.forEach(function (entry) {
+      if (entry.correct !== false || !entry.key || !entry.answer) return;
+      var values = Array.isArray(examState.rejected[entry.key]) ? examState.rejected[entry.key] : [];
+      var answerKey = normalize(entry.answer);
+      if (!values.some(function (value) { return normalize(value) === answerKey; })) {
+        values.push(entry.answer);
+        changed++;
+      }
+      examState.rejected[entry.key] = values.slice(-20);
+    });
+    return changed;
+  }
   function savePassedAnswers(submitted) {
     return saveLearnedAnswers(Object.keys(submitted || {}).map(function (key) {
       return { key: key, answer: submitted[key], correct: true };
@@ -1207,16 +1242,21 @@
     var examState = exams[cwid] || { attempt: 0, submitted: {} };
     var resultRecords = parseResultAnswers(examState.submitted);
     var learnedCount = saveLearnedAnswers(resultRecords);
+    var rejectedCount = saveRejectedAnswers(resultRecords, examState);
     if (/考试未通过|未通过/.test(text)) {
       if (!resultRecords.length && Object.keys(examState.submitted || {}).length && retry < 20) {
         setState({ phase: 'result', message: '等待考试结果明细加载（' + (retry + 1) + '/20）' });
         setTimeout(function () { if (route() === 'result') handleResult(retry + 1); }, 500);
         return;
       }
-      examState.attempt = learnedCount ? 1 : Number(examState.attempt || 0) + 1;
+      examState.attempt = learnedCount || rejectedCount ? 1 : Number(examState.attempt || 0) + 1;
       resultRecords.forEach(function (entry) { if (entry.key && entry.answer) examState.submitted[entry.key] = entry.answer; });
       exams[cwid] = examState; write(EXAM_KEY, exams);
-      setState({ phase: 'result', message: '本次未通过，已学习 ' + learnedCount + ' 题，准备第' + (examState.attempt + 1) + '次组合' });
+      setState({
+        phase: 'result',
+        message: '本次未通过，已学习 ' + learnedCount + ' 题、排除 ' + rejectedCount +
+          ' 项，准备第' + (examState.attempt + 1) + '次组合'
+      });
       if (!cwid) { setState({ running: false, message: '考试结果缺少 cwid，已停止以避免循环' }); return; }
       setTimeout(function () { if (state.running) navigate('/pages/exam.aspx?cwid=' + encodeURIComponent(cwid)); }, 2500);
       return;
@@ -1915,6 +1955,7 @@
       scanCatalog: scanCatalog, scanCourseDetail: scanCourseDetail, loginElements: loginElements,
       selectStudyYear: selectStudyYear,
       parseExam: parseExam, parseResultAnswers: parseResultAnswers, saveLearnedAnswers: saveLearnedAnswers,
+      saveRejectedAnswers: saveRejectedAnswers,
       findResultNextAction: findResultNextAction,
       verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, answerCombinationCount: answerCombinationCount,
       fixedAnswerSignature: fixedAnswerSignature,

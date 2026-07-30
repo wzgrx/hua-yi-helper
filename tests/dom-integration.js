@@ -326,6 +326,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('诊治BPSD的价值不包括？'), '与认知障碍及日常生活能力下降互不影响');
   assert.equal(api.verifiedAnswer('痴呆临床表现的ABC症状中，A代表的是？'), '日常生活能力下降');
   assert.equal(api.verifiedAnswer('路易体痴呆（DLB）的BPSD核心特点是？'), '幻觉早而明显');
+  assert.equal(api.verifiedAnswer('以下属于激越中言语攻击性行为的是？'), '发出怪声');
+  assert.equal(api.verifiedAnswer('关于BPSD的临床特点，以下表述错误的是？'), '精神症状仅在痴呆中晚期出现');
+  assert.equal(api.verifiedAnswer('以下属于激越中身体非攻击性行为的是？'), '不恰当的处理事情');
+  assert.equal(api.verifiedAnswer('美金刚显著预防AD患者以下哪项BPSD症状的发生？'), '激越/攻击');
+  assert.equal(api.verifiedAnswer('AD患者激越发生率随CDR分期变化的趋势是？'), '逐渐升高');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
@@ -364,6 +369,20 @@ test('全量已知答案生成稳定签名且未知题不生成签名', () => {
   assert.equal(api.fixedAnswerSignature(unknown, api.chooseAnswers(unknown, { attempt: 0 })), '');
 });
 
+test('结果判错后排除旧答案并缩小组合空间', () => {
+  const questions = [{
+    question: '已知题',
+    key: 'known',
+    options: [{ text: '旧答案' }, { text: '新答案' }]
+  }];
+  const { api } = boot('', undefined, { HY8_ANSWERS: { known: '旧答案' } });
+  const examState = { attempt: 0, rejected: { known: ['旧答案'] } };
+  const choices = api.chooseAnswers(questions, examState);
+  assert.equal(choices[0].text, '新答案');
+  assert.equal(api.fixedAnswerSignature(questions, choices, examState), '');
+  assert.equal(api.answerCombinationCount(questions, examState), 1);
+});
+
 test('结果页仅学习判定正确的题目', () => {
   const { api, values } = boot(`
     <section><div class="state_cour_lis"><img src="/images/bar_img.png"><p title="1、第一题">第一题</p></div><div>【您的答案：B、正确答案】</div></section>
@@ -376,6 +395,10 @@ test('结果页仅学习判定正确的题目', () => {
   const learned = values.get('HY8_ANSWERS');
   assert.equal(learned[records[0].key], '正确答案');
   assert.equal(learned[records[1].key], undefined);
+  const examState = {};
+  assert.equal(api.saveRejectedAnswers(records, examState), 1);
+  assert.equal(examState.rejected[records[1].key][0], '错误答案');
+  assert.equal(api.saveRejectedAnswers(records, examState), 0);
 });
 
 test('新版结果列表从每一题自身节点提取答案并保持题答对应', () => {
