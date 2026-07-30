@@ -110,6 +110,38 @@ test('登录页识别最新真实字段与隐藏密码字段', () => {
   assert(elements.captcha && elements.captchaImage && elements.agreement && elements.submit);
 });
 
+test('考试异常验证码页识别最新输入框、图片与提交按钮', () => {
+  const { api } = boot(`<form>
+    <img id="imgCheckCode" class="yzm_img" src="/secure/CheckCode.aspx?id=1">
+    <input id="txtCheckCode" name="txtCheckCode" type="text">
+    <input id="btnYes" name="btnYes" type="submit" value="提交">
+  </form>`, 'https://cme28.91huayi.com/pages/exam_code.aspx?cwid=x');
+  const elements = api.examCaptchaElements();
+  assert.equal(elements.image.id, 'imgCheckCode');
+  assert.equal(elements.input.id, 'txtCheckCode');
+  assert.equal(elements.submit.id, 'btnYes');
+});
+
+test('证书确认页不会把未激活的申请成功步骤当成完成', () => {
+  const { api } = boot(`<ul class="step_ul">
+    <li class="step_lis lis_have"><p class="step_p">证书确认</p></li>
+    <li class="step_lis"><p class="step_p">申请成功</p></li>
+  </ul>
+  <input type="button" value="不，先不申请">
+  <input type="button" class="yes" value="是的，我申请">`,
+  'https://cme28.91huayi.com/pages/apply_certificate_top.aspx?cid=x');
+  assert.equal(api.certificateSucceeded(), false);
+  assert.equal(api.findCertificateApplyAction().value, '是的，我申请');
+});
+
+test('证书页仅在申请成功步骤激活后判定完成', () => {
+  const { api } = boot(`<ul class="step_ul">
+    <li class="step_lis lis_wind"><p class="step_p">证书确认</p></li>
+    <li class="step_lis lis_have"><p class="step_p">申请成功</p></li>
+  </ul>`, 'https://cme28.91huayi.com/pages/apply_certificate_top.aspx?cid=x');
+  assert.equal(api.certificateSucceeded(), true);
+});
+
 test('播放器识别新版签到、继续学习提示及原生媒体状态', () => {
   const { api } = boot(`<video></video><div class="study_diaog"><button class="btn_sign">签到</button></div>`,
     'https://cme28.91huayi.com/course_ware/course_ware_polyv.aspx?cwid=x');
@@ -221,6 +253,24 @@ test('结果页仅学习判定正确的题目', () => {
   const learned = values.get('HY8_ANSWERS');
   assert.equal(learned[records[0].key], '正确答案');
   assert.equal(learned[records[1].key], undefined);
+});
+
+test('新版结果列表从每一题自身节点提取答案并保持题答对应', () => {
+  const { api } = boot(`<ul class="state_cour_ul">
+    <li class="state_cour_lis">
+      <img src="/images/images_20221112/bar_img.png" class="state_right">
+      <p class="state_lis_text" title="第一题">1、第一题</p>
+      <p class="state_lis_text" title="B、第一题正确答案">【您的答案： B、第一题正确答案】</p>
+    </li>
+    <li class="state_cour_lis">
+      <img src="/images/images_20221112/error_icon.png" class="state_error">
+      <p class="state_lis_text" title="第二题">2、第二题</p>
+      <p class="state_lis_text" title="D、第二题错误答案">【您的答案： D、第二题错误答案】</p>
+    </li>
+  </ul>`, 'https://cme28.91huayi.com/pages/exam_result.aspx?cwid=x');
+  const records = api.parseResultAnswers({});
+  assert.deepEqual(Array.from(records, item => item.answer), ['第一题正确答案', '第二题错误答案']);
+  assert.deepEqual(Array.from(records, item => item.correct), [true, false]);
 });
 
 test('考试通过结果页识别新版立即学习入口', () => {

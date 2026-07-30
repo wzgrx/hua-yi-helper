@@ -1,4 +1,4 @@
-# 华医网学习助手 v8.1
+# 华医网学习助手 v8.1.1
 
 面向华医网继续医学教育流程的跨端自动化实现。v8 将年度学分规划抽成共享核心，并由 Tampermonkey 与 Hermes/Puppeteer 共用：目标年度默认要求 **公需课 5 分**，再从**继续教育**和**全员专项**中选择课程补足**其他 20 分**。
 
@@ -49,7 +49,7 @@ flowchart LR
 
 1. 安装 Tampermonkey。
 2. 打开 <https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js>
-3. 确认版本为 `8.1.0`。
+3. 确认版本为 `8.1.1`。
 4. 登录华医网，打开学习记录页，点击“开始/继续”。
 
 脚本名称保留为“华医网学习助手 v6”，用于让已安装的旧脚本按同一身份原位升级；实际版本由 `@version` 标识。
@@ -93,7 +93,7 @@ $env:HUAYI_PASSWORD = 'PASSWORD'
   --captcha-auto true --captcha-max-attempts 6
 ```
 
-Hermes 会自动启动本机 OCR 服务，识别 5 位数字验证码、提交并在页面校验失败时刷新重试。也可通过 `HUAYI_CAPTCHA_PORT`、`HUAYI_CAPTCHA_LENGTH` 和 `HUAYI_CAPTCHA_MAX_ATTEMPTS` 调整。账号、密码和验证码均不会写入仓库或运行日志。
+Hermes 会自动启动本机 OCR 服务，统一处理登录验证码与考试异常验证页，提交并在页面校验失败时刷新重试。也可通过 `HUAYI_CAPTCHA_PORT`、`HUAYI_CAPTCHA_LENGTH` 和 `HUAYI_CAPTCHA_MAX_ATTEMPTS` 调整。账号、密码和验证码均不会写入仓库或运行日志。
 
 ## Hermes：WSL
 
@@ -139,7 +139,7 @@ export HUAYI_PASSWORD='PASSWORD'
   → 返回学习记录最终核验
 ```
 
-另外覆盖异步页面加载、真实 `cid`/`cwid`、问卷必填、互动病例、唯一培训卡选择、重复注入清理、课程目录去重与跨页面恢复。
+另外覆盖异步页面加载、真实 `cid`/`cwid`、问卷必填、互动病例、考试异常验证码、唯一培训卡选择、无卡课程跳过继续其余任务、重复注入清理、课程目录去重与跨页面恢复。Hermes 使用受长度约束的跨子域状态桥，仅同步流程游标和阻塞项，完整学习记录与任务队列继续保留在各页面本地存储中。
 
 ## 构建与测试
 
@@ -163,6 +163,7 @@ npm run test:login
 - 最新微信/短信/密码登录模式切换与表单字段；
 - 12 个华医真实验证码夹具的本机 OCR 回归；
 - 独立临时浏览器资料目录中的真实全自动登录（通过环境变量启用）；
+- 登录、证书确认、培训卡、课件、考试验证码与结果页组成的实站状态机；
 - Puppeteer 真实浏览器烟雾测试；
 - 华医网在线登录页 HTTP/DOM 布局测试（`npm run test:live`，不提交表单）；
 - 全源码语法、版本一致性、密钥泄露和回归约束。

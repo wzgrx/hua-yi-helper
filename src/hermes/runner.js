@@ -39,6 +39,13 @@ function preloadSource(policy, options) {
   return `(() => {
     const prefix = 'HY_HERMES_';
     const bridgeName = 'HY_HERMES_STATE';
+    const bridgeKeys = [
+      'running', 'paused', 'phase', 'message',
+      'credit', 'publicEarned', 'otherEarned', 'publicProjected', 'otherProjected',
+      'currentCourseUrl', 'currentCourseName', 'currentCwid',
+      'blockedApplications', 'blockedApplicationYear',
+      'catalogYear', 'catalogSourcesVisited', 'lastRoute', 'lastActionAt'
+    ];
     const bridgeRead = () => {
       try {
         const part = document.cookie.split('; ').find(item => item.startsWith(bridgeName + '='));
@@ -47,8 +54,40 @@ function preloadSource(policy, options) {
     };
     const bridgeWrite = value => {
       try {
-        const compact = Object.assign({}, value, { logs: (value.logs || []).slice(-8) });
-        document.cookie = bridgeName + '=' + encodeURIComponent(JSON.stringify(compact)) +
+        const compact = {};
+        bridgeKeys.forEach(key => {
+          if (Object.prototype.hasOwnProperty.call(value || {}, key)) compact[key] = value[key];
+        });
+        const shortText = (input, size) => String(input == null ? '' : input).slice(0, size);
+        ['message', 'currentCourseUrl', 'currentCourseName', 'currentCwid', 'lastRoute'].forEach(key => {
+          if (Object.prototype.hasOwnProperty.call(compact, key)) compact[key] = shortText(compact[key], 320);
+        });
+        compact.blockedApplications = Array.isArray(compact.blockedApplications) ?
+          compact.blockedApplications.slice(-16).map(item => shortText(item, 320)) : [];
+        compact.catalogSourcesVisited = Array.isArray(compact.catalogSourcesVisited) ?
+          compact.catalogSourcesVisited.slice(-8).map(item => shortText(item, 160)) : [];
+        compact.logs = Array.isArray(value && value.logs) ?
+          value.logs.slice(-2).map(item => shortText(item, 240)) : [];
+        let payload = encodeURIComponent(JSON.stringify(compact));
+        if (payload.length > 3600) {
+          compact.logs = [];
+          compact.blockedApplications = compact.blockedApplications.slice(-8);
+          compact.catalogSourcesVisited = [];
+          compact.message = shortText(compact.message, 120);
+          payload = encodeURIComponent(JSON.stringify(compact));
+        }
+        while (payload.length > 3600 && compact.blockedApplications.length > 1) {
+          compact.blockedApplications.shift();
+          payload = encodeURIComponent(JSON.stringify(compact));
+        }
+        if (payload.length > 3600) {
+          compact.blockedApplications = [];
+          compact.message = shortText(compact.message, 80);
+          compact.currentCourseName = shortText(compact.currentCourseName, 120);
+          compact.currentCourseUrl = shortText(compact.currentCourseUrl, 240);
+          payload = encodeURIComponent(JSON.stringify(compact));
+        }
+        document.cookie = bridgeName + '=' + payload +
           '; Domain=.91huayi.com; Path=/; SameSite=Lax';
       } catch (_) {}
     };
@@ -58,7 +97,10 @@ function preloadSource(policy, options) {
         const local = raw == null ? undefined : JSON.parse(raw);
         if (key !== 'HY8_STATE') return local;
         const bridge = bridgeRead();
-        return !local || (bridge && Number(bridge.lastActionAt || 0) > Number(local.lastActionAt || 0)) ? bridge : local;
+        if (!local) return bridge;
+        if (!bridge) return local;
+        return Number(bridge.lastActionAt || 0) >= Number(local.lastActionAt || 0) ?
+          Object.assign({}, local, bridge) : local;
       } catch (_) { return key === 'HY8_STATE' ? bridgeRead() : undefined; }
     };
     const write = (key, value) => {
@@ -279,7 +321,43 @@ async function submitLogin(page) {
   const submit = await visibleHandle(page, LOGIN_SELECTORS.submit, false);
   if (!submit) throw new Error('登录按钮未找到');
   await submit.click();
-  await Promise.race([navigation, new Promise(resolve => setTimeout(resolve, 2200))]);
+  await Promise.race([navigation, new Promise(resolve => setTimeout(resolve, 1200))]);
+}
+
+async function waitForLoginOutcome(page, timeoutMs) {
+  const deadline = Date.now() + Number(timeoutMs || 10000);
+  let message = '';
+  while (Date.now() < deadline) {
+    if (!/\/secure\/login/i.test(page.url())) return { navigated: true, message: '' };
+    try {
+      const result = await page.evaluate(() => {
+        const visible = element => {
+          if (!element) return false;
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' &&
+            style.opacity !== '0' && rect.width > 0 && rect.height > 0;
+        };
+        const dialogs = Array.from(document.querySelectorAll(
+          '.layui-layer-dialog,.layui-layer-content,.ui-dialog,.el-message-box,[role="dialog"]'
+        )).filter(visible);
+        return {
+          message: dialogs.map(element => element.innerText || element.textContent || '').join(' '),
+          ready: document.readyState
+        };
+      });
+      message = String(result.message || '');
+      if (message) return { navigated: false, message };
+    } catch (_) {
+      // Navigation replaces the execution context; the next poll reads the new document.
+    }
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
+  if (!/\/secure\/login/i.test(page.url())) return { navigated: true, message: '' };
+  try {
+    message = await page.evaluate(() => document.body ? String(document.body.innerText || '') : '');
+  } catch (_) {}
+  return { navigated: false, message };
 }
 
 async function handleLogin(page, config, report) {
@@ -331,13 +409,12 @@ async function handleLogin(page, config, report) {
       }
       if (!plan.submit) throw new Error('登录提交条件尚未满足');
       await submitLogin(page);
-      if (!/\/secure\/login/i.test(page.url())) {
+      const outcome = await waitForLoginOutcome(page, 10000);
+      if (outcome.navigated) {
         report({ type: 'login', message: '登录成功，正在恢复年度任务' });
         return { status: 'submitted', attempts: attempt };
       }
-      const message = await page.evaluate(() =>
-        document.body ? String(document.body.innerText || '') : ''
-      );
+      const message = outcome.message;
       if (!/验证码|校验码|图形码/.test(message)) {
         throw new Error('登录未完成，请核对页面提示');
       }
@@ -381,16 +458,18 @@ async function runHermes(config, callbacks) {
       report({ type: 'captcha_service', message: `复用本机验证码模块：${config.captchaProviderUrl}` });
     }
   }
-  const userscript = fs.readFileSync(path.join(__dirname, '..', 'tampermonkey', 'hua-yi-helper.user.js'), 'utf8');
   const connected = Boolean(config.browserUrl);
-  const browser = connected ? await puppeteer.connect({ browserURL: config.browserUrl, defaultViewport: null }) :
-    await puppeteer.launch({
+  let browser = null;
+  try {
+    const userscript = fs.readFileSync(path.join(__dirname, '..', 'tampermonkey', 'hua-yi-helper.user.js'), 'utf8');
+    browser = connected ? await puppeteer.connect({ browserURL: config.browserUrl, defaultViewport: null }) :
+      await puppeteer.launch({
       executablePath: config.browserPath,
       headless: config.headless,
       userDataDir: config.userDataDir,
       defaultViewport: { width: 1440, height: 960 },
       args: ['--no-first-run', '--disable-default-apps']
-    });
+      });
   const pages = await browser.pages();
   const page = pages[0] || await browser.newPage();
   page.setDefaultTimeout(30000);
@@ -438,11 +517,23 @@ async function runHermes(config, callbacks) {
       }
       return { status: 'done', state, policy: Core.buildAnnualPlan(state.studyRecords || [], state.catalogRecords || [], config.policy) };
     }
-    if (!state.running && /^(blocked|card|paused)$/.test(String(state.phase))) {
+    if (!state.running) {
       return { status: 'attention', state, browser, captchaService };
     }
   }
-  return { status: 'timeout', state: await readState(page), browser, captchaService };
+    return { status: 'timeout', state: await readState(page), browser, captchaService };
+  } catch (error) {
+    if (browser) {
+      try {
+        if (connected) browser.disconnect();
+        else await browser.close();
+      } catch (_) {}
+    }
+    if (captchaService) {
+      try { await captchaService.close(); } catch (_) {}
+    }
+    throw error;
+  }
 }
 
 module.exports = {
@@ -457,6 +548,7 @@ module.exports = {
   captchaImageBuffer,
   refreshCaptcha,
   submitLogin,
+  waitForLoginOutcome,
   handleLogin,
   readState,
   runHermes
