@@ -1,4 +1,4 @@
-# 华医网学习助手 v8.1.1
+# 华医网学习助手 v8.2.0
 
 面向华医网继续医学教育流程的跨端自动化实现。v8 将年度学分规划抽成共享核心，并由 Tampermonkey 与 Hermes/Puppeteer 共用：目标年度默认要求 **公需课 5 分**，再从**继续教育**和**全员专项**中选择课程补足**其他 20 分**。
 
@@ -49,7 +49,7 @@ flowchart LR
 
 1. 安装 Tampermonkey。
 2. 打开 <https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js>
-3. 确认版本为 `8.1.1`。
+3. 确认版本为 `8.2.0`。
 4. 登录华医网，打开学习记录页，点击“开始/继续”。
 
 脚本名称保留为“华医网学习助手 v6”，用于让已安装的旧脚本按同一身份原位升级；实际版本由 `@version` 标识。
@@ -95,6 +95,19 @@ $env:HUAYI_PASSWORD = 'PASSWORD'
 
 Hermes 会自动启动本机 OCR 服务，统一处理登录验证码与考试异常验证页，提交并在页面校验失败时刷新重试。也可通过 `HUAYI_CAPTCHA_PORT`、`HUAYI_CAPTCHA_LENGTH` 和 `HUAYI_CAPTCHA_MAX_ATTEMPTS` 调整。账号、密码和验证码均不会写入仓库或运行日志。
 
+长时间无人值守运行使用监督模式。每轮都会完整回收浏览器和 OCR 资源；异常、页面暂停或单轮超时后按配置重启，并通过单实例锁避免重复运行。`status.json` 使用原子替换写入，完整事件追加到 `events.ndjson`：
+
+```powershell
+.\bin\huayi-hermes.ps1 `
+  --year 2026 --public-target 5 --other-target 20 `
+  --data-dir 'C:\HuayiHermes2026' `
+  --supervise true --restart-limit 20 --restart-delay-ms 60000 `
+  --max-runtime-ms 259200000 --captcha-max-attempts 8 `
+  --headless true --keep-awake true
+```
+
+可用 `--status-file`、`--event-log-file`、`--lock-file` 自定义监督文件位置。进程收到 `Ctrl+C` 或终止信号后会结束当前周期并回收临时保持唤醒进程。
+
 ## Hermes：WSL
 
 Linux Chromium 可直接启动：
@@ -139,7 +152,7 @@ export HUAYI_PASSWORD='PASSWORD'
   → 返回学习记录最终核验
 ```
 
-另外覆盖异步页面加载、真实 `cid`/`cwid`、问卷必填、互动病例、考试异常验证码、唯一培训卡选择、无卡课程跳过继续其余任务、重复注入清理、课程目录去重与跨页面恢复。Hermes 使用受长度约束的跨子域状态桥，仅同步流程游标和阻塞项，完整学习记录与任务队列继续保留在各页面本地存储中。
+另外覆盖异步页面加载、真实 `cid`/`cwid`、问卷恢复弹窗/隐藏选项/滑块/排序题、互动病例、考试异常验证码、播放器受保护提示的浏览器原生输入、唯一培训卡选择、无卡课程跳过继续其余任务、重复注入清理、课程目录去重与跨页面恢复。Hermes 使用受长度约束的跨子域状态桥，仅同步流程游标和阻塞项，完整学习记录与任务队列继续保留在各页面本地存储中。
 
 ## 构建与测试
 

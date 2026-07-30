@@ -81,6 +81,10 @@ function loadConfig(argv, environment) {
   const otherTarget = Number(args['other-target'] || env.HUAYI_OTHER_TARGET || 20);
   const workspace = path.resolve(args['data-dir'] || env.HUAYI_DATA_DIR || path.join(process.cwd(), '.huayi-hermes'));
   const browserUrl = String(args['browser-url'] || env.HUAYI_BROWSER_URL || '');
+  const supervise = parseBoolean(
+    args.supervise !== undefined ? args.supervise : env.HUAYI_SUPERVISE,
+    false
+  );
   return {
     browserPath: browserUrl ? '' : resolveBrowser(args.browser || env.HUAYI_BROWSER, { environment: env }),
     browserUrl,
@@ -108,6 +112,22 @@ function loadConfig(argv, environment) {
     maxRuntimeMs: Number(args['max-runtime-ms'] || env.HUAYI_MAX_RUNTIME_MS || 8 * 60 * 60 * 1000),
     captchaTimeoutMs: Number(args['captcha-timeout-ms'] || env.HUAYI_CAPTCHA_TIMEOUT_MS || 10 * 60 * 1000),
     once: parseBoolean(args.once, false),
+    supervise,
+    restartLimit: Math.max(0, Number(
+      args['restart-limit'] !== undefined ? args['restart-limit'] :
+        (env.HUAYI_RESTART_LIMIT !== undefined ? env.HUAYI_RESTART_LIMIT : 20)
+    )),
+    restartDelayMs: Math.max(0, Number(
+      args['restart-delay-ms'] !== undefined ? args['restart-delay-ms'] :
+        (env.HUAYI_RESTART_DELAY_MS !== undefined ? env.HUAYI_RESTART_DELAY_MS : 60 * 1000)
+    )),
+    statusFile: path.resolve(args['status-file'] || env.HUAYI_STATUS_FILE || path.join(workspace, 'status.json')),
+    eventLogFile: path.resolve(args['event-log-file'] || env.HUAYI_EVENT_LOG_FILE || path.join(workspace, 'events.ndjson')),
+    lockFile: path.resolve(args['lock-file'] || env.HUAYI_LOCK_FILE || path.join(workspace, 'supervisor.lock')),
+    keepAwake: parseBoolean(
+      args['keep-awake'] !== undefined ? args['keep-awake'] : env.HUAYI_KEEP_AWAKE,
+      supervise
+    ),
     policy: { year, publicTarget, otherTarget }
   };
 }
@@ -124,6 +144,13 @@ function publicConfig(config) {
     captchaMaxAttempts: config.captchaMaxAttempts,
     captchaExpectedLength: config.captchaExpectedLength,
     captchaProviderConfigured: Boolean(config.captchaProviderUrl),
+    supervise: config.supervise,
+    restartLimit: config.restartLimit,
+    restartDelayMs: config.restartDelayMs,
+    statusFile: config.statusFile,
+    eventLogFile: config.eventLogFile,
+    lockFile: config.lockFile,
+    keepAwake: config.keepAwake,
     policy: config.policy,
     usernameConfigured: Boolean(config.username),
     passwordConfigured: Boolean(config.password)

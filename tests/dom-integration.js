@@ -110,6 +110,46 @@ test('登录页识别最新真实字段与隐藏密码字段', () => {
   assert(elements.captcha && elements.captchaImage && elements.agreement && elements.submit);
 });
 
+test('问卷恢复弹窗、隐藏选项、滑块必填和 div 提交入口', () => {
+  let resumed = 0;
+  const withResume = boot(`<form>
+    <input type="radio" name="q1" value="1">
+    <div id="ctlNext" class="submitbtn">提交</div>
+    <a class="layui-layer-btn0">确认</a>
+  </form><div>您之前已经回答了部分题目，是否继续上次回答</div>`,
+  'https://dcwj.91huayi.com/vm/fixture.aspx', {
+    HY8_STATE: { running: true, paused: false, phase: 'survey' }
+  });
+  withResume.window.document.querySelector('.layui-layer-btn0').addEventListener('click', event => {
+    resumed++;
+    event.currentTarget.remove();
+  });
+  withResume.api.handleSurvey();
+  assert(resumed > 0);
+
+  const survey = boot(`<form>
+    <span><input type="checkbox" name="q1" value="1" style="display:none"><a class="jqcheck"></a></span>
+    <span><input type="radio" name="q2" value="1" style="display:none"><a class="jqradio"></a></span>
+    <input type="text" class="ui-slider-input" name="q3" min="0" max="100" value="">
+    <div class="field" type="11"><ul>
+      <li data-value="1">指南</li><li data-value="2">会议</li><li data-value="3">其他</li>
+    </ul></div>
+    <div id="ctlNext" class="submitbtn">提交</div>
+  </form>`, 'https://dcwj.91huayi.com/vm/fixture.aspx', {
+    HY8_STATE: { running: true, paused: false, phase: 'survey' }
+  });
+  let ranked = 0;
+  survey.window.document.querySelectorAll('.field[type="11"] li').forEach(item => {
+    item.addEventListener('click', () => { ranked++; item.classList.add('check'); });
+  });
+  survey.api.handleSurvey();
+  assert.equal(survey.window.document.querySelector('input[type="checkbox"]').checked, true);
+  assert.equal(survey.window.document.querySelector('input[type="radio"]').checked, true);
+  assert.equal(survey.window.document.querySelector('.ui-slider-input').value, '50');
+  assert.equal(ranked, 2);
+  assert.match(survey.values.get('HY8_STATE').message, /正在提交/);
+});
+
 test('考试异常验证码页识别最新输入框、图片与提交按钮', () => {
   const { api } = boot(`<form>
     <img id="imgCheckCode" class="yzm_img" src="/secure/CheckCode.aspx?id=1">
@@ -150,6 +190,7 @@ test('播放器识别新版签到、继续学习提示及原生媒体状态', ()
   const prompt = api.findPlayerPrompt();
   assert(prompt);
   assert.equal(prompt.text, '签到');
+  assert.equal(api.needsTrustedPlayerClick(prompt.element), true);
 });
 
 test('播放器兼容新版 page player 桥接进度接口', () => {

@@ -1,11 +1,14 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const {
   parseArgs,
   browserCandidates,
   resolveBrowser,
+  loadConfig,
   publicConfig
 } = require('../src/hermes/config');
 
@@ -55,5 +58,33 @@ assert.equal(publicView.captchaExpectedLength, 5);
 assert.equal(publicView.captchaProviderConfigured, false);
 assert.equal(publicView.usernameConfigured, true);
 assert.equal(publicView.passwordConfigured, true);
+
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'huayi-config-'));
+const fakeBrowser = path.join(temp, 'browser.exe');
+fs.writeFileSync(fakeBrowser, 'fixture');
+const supervised = loadConfig([
+  '--browser', fakeBrowser,
+  '--data-dir', path.join(temp, 'supervised'),
+  '--supervise', 'true',
+  '--restart-limit', '9',
+  '--restart-delay-ms', '1234',
+  '--keep-awake', 'false'
+], {});
+assert.equal(supervised.supervise, true);
+assert.equal(supervised.restartLimit, 9);
+assert.equal(supervised.restartDelayMs, 1234);
+assert.equal(supervised.keepAwake, false);
+assert.equal(supervised.statusFile, path.join(temp, 'supervised', 'status.json'));
+assert.equal(supervised.eventLogFile, path.join(temp, 'supervised', 'events.ndjson'));
+assert.equal(supervised.lockFile, path.join(temp, 'supervised', 'supervisor.lock'));
+const noRestart = loadConfig([
+  '--browser', fakeBrowser,
+  '--data-dir', path.join(temp, 'no-restart'),
+  '--restart-limit', '0',
+  '--restart-delay-ms', '0'
+], {});
+assert.equal(noRestart.restartLimit, 0);
+assert.equal(noRestart.restartDelayMs, 0);
+fs.rmSync(temp, { recursive: true, force: true });
 
 console.log('Hermes Win11/WSL 配置测试通过');

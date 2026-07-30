@@ -1,9 +1,9 @@
 {
   "name": "hua-yi-helper",
-  "version": "8.1.1",
-  "description": "华医网学习助手 v8.1.1 - Tampermonkey、Hermes、WSL 与 Win11 跨端年度 5+20 智能规划",
+  "version": "8.2.0",
+  "description": "华医网学习助手 v8.2.0 - Tampermonkey、Hermes、WSL 与 Win11 跨端年度 5+20 智能规划",
   "scripts": {
-    "test": "npm run build && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/captcha.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
+    "test": "npm run build && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/captcha.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-supervisor.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
     "build": "node scripts/build-userscript.js",
     "hermes": "node src/hermes/cli.js",
     "captcha": "node src/hermes/captcha-cli.js",

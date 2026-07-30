@@ -3,11 +3,18 @@
 
 const { loadConfig, publicConfig } = require('./config');
 const { runHermes } = require('./runner');
+const { superviseHermes } = require('./supervisor');
 
 async function main() {
   const config = loadConfig(process.argv.slice(2));
+  const controller = new AbortController();
+  config.signal = controller.signal;
+  const stop = () => controller.abort();
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
   console.log('[Hermes] 配置', JSON.stringify(publicConfig(config), null, 2));
-  const result = await runHermes(config, {
+  const execute = config.supervise ? superviseHermes : runHermes;
+  const result = await execute(config, {
     report(event) {
       if (event.state) {
         console.log(`[Hermes] ${event.state.phase}: ${event.state.message || ''}`);
@@ -22,7 +29,7 @@ async function main() {
     }
   });
   console.log(`[Hermes] 结束状态：${result.status}`);
-  if (result.status !== 'done' && result.status !== 'attention') process.exitCode = 2;
+  if (result.status !== 'done' && result.status !== 'attention' && result.status !== 'stopped') process.exitCode = 2;
 }
 
 main().catch(error => {

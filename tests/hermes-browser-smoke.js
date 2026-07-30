@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const puppeteer = require('puppeteer-core');
 const { resolveBrowser } = require('../src/hermes/config');
+const { closeRuntimeResources, clickTrustedPlayerAction } = require('../src/hermes/runner');
 
 (async () => {
   const executablePath = resolveBrowser(process.env.HUAYI_BROWSER);
@@ -24,9 +25,19 @@ const { resolveBrowser } = require('../src/hermes/config');
     assert.equal(text, 'Win11 + Edge + Hermes');
     const version = await browser.version();
     assert(/Chrome|Edge|HeadlessChrome/i.test(version));
+    await page.setContent(`<div class="layer_tips"><button class="rig_btn">继续学习</button></div>
+      <script>
+        window.__trustedClick = false;
+        document.querySelector('.rig_btn').addEventListener('click', event => {
+          window.__trustedClick = event.isTrusted;
+        }, true);
+      </script>`);
+    const trusted = await clickTrustedPlayerAction(page);
+    assert.equal(trusted.text, '继续学习');
+    assert.equal(await page.evaluate(() => window.__trustedClick), true);
     console.log(`Hermes 真实浏览器烟雾测试通过：${version}`);
   } finally {
-    if (browser) await browser.close();
+    await closeRuntimeResources(browser, null, false, profile);
     fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 })().catch(error => {

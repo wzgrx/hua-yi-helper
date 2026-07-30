@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const childProcess = require('child_process');
 const puppeteer = require('puppeteer-core');
 const Core = require('../shared/core');
 const { createLocalRecognizer, solveCaptchaBuffer } = require('./captcha');
@@ -111,6 +112,12 @@ function preloadSource(policy, options) {
     window.GM_setValue = (key, value) => write(key, value);
     window.GM_deleteValue = key => { try { localStorage.removeItem(prefix + key); } catch (_) {} };
     window.GM_registerMenuCommand = () => {};
+    try {
+      Object.defineProperty(Navigator.prototype, 'webdriver', {
+        configurable: true,
+        get: () => undefined
+      });
+    } catch (_) {}
     window.__HY8_CAPTCHA_PROVIDER_URL = ${JSON.stringify(settings.captchaProviderUrl || '')};
     write('HY8_POLICY', ${JSON.stringify(policy)});
     const state = Object.assign({ running: true, paused: false, phase: 'idle', logs: [] }, read('HY8_STATE') || {});
@@ -438,11 +445,99 @@ async function readState(page) {
   });
 }
 
+async function clickTrustedPlayerAction(page) {
+  const selectors = [
+    '.layer_tips .rig_btn',
+    '.study_diaog .btn_sign'
+  ];
+  for (const selector of selectors) {
+    const handle = await visibleHandle(page, selector, false);
+    if (!handle) continue;
+    const text = await handle.evaluate(element =>
+      String(element.value || element.innerText || element.textContent || '').trim()
+    ).catch(() => '');
+    await handle.click({ delay: 35 });
+    return { selector, text };
+  }
+  return null;
+}
+
+function processExists(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function killBrowserProcessesForProfile(userDataDir) {
+  if (!userDataDir || process.platform !== 'win32') return;
+  const script = [
+    "$profile = $env:HUAYI_CLEAN_PROFILE",
+    "Get-CimInstance Win32_Process | Where-Object {",
+    "  $_.Name -match '^(msedge|chrome)\\.exe$' -and",
+    "  $_.CommandLine -and $_.CommandLine.IndexOf($profile, [StringComparison]::OrdinalIgnoreCase) -ge 0",
+    "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+  ].join('\n');
+  childProcess.spawnSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    {
+      stdio: 'ignore',
+      windowsHide: true,
+      env: Object.assign({}, process.env, { HUAYI_CLEAN_PROFILE: path.resolve(userDataDir) })
+    }
+  );
+}
+
+async function closeRuntimeResources(browser, captchaService, connected, userDataDir) {
+  let browserPid = 0;
+  if (browser && !connected) {
+    try {
+      const browserProcess = browser.process && browser.process();
+      browserPid = Number(browserProcess && browserProcess.pid || 0);
+    } catch (_) {}
+  }
+  if (browser) {
+    try {
+      if (connected) browser.disconnect();
+      else {
+        await Promise.race([
+          browser.close(),
+          new Promise(resolve => setTimeout(resolve, 5000))
+        ]);
+      }
+    } catch (_) {}
+  }
+  if (browserPid && process.platform === 'win32') {
+    await new Promise(resolve => setTimeout(resolve, 250));
+    if (processExists(browserPid)) {
+      childProcess.spawnSync(
+        'taskkill',
+        ['/PID', String(browserPid), '/T', '/F'],
+        { stdio: 'ignore', windowsHide: true }
+      );
+    }
+  }
+  if (!connected && userDataDir) killBrowserProcessesForProfile(userDataDir);
+  if (captchaService) {
+    try {
+      await Promise.race([
+        captchaService.close(),
+        new Promise(resolve => setTimeout(resolve, 3000))
+      ]);
+    } catch (_) {}
+  }
+}
+
 async function runHermes(config, callbacks) {
   const report = callbacks && callbacks.report || (() => {});
   fs.mkdirSync(config.userDataDir, { recursive: true });
   let captchaService = null;
-  if (config.captchaAuto !== false && !config.captchaProviderUrl) {
+  let captchaProviderUrl = config.captchaProviderUrl;
+  if (config.captchaAuto !== false && !captchaProviderUrl) {
     try {
       captchaService = await startCaptchaServer({
         port: config.captchaPort,
@@ -450,12 +545,12 @@ async function runHermes(config, callbacks) {
         expectedLength: config.captchaExpectedLength,
         unref: true
       });
-      config.captchaProviderUrl = captchaService.url;
+      captchaProviderUrl = captchaService.url;
       report({ type: 'captcha_service', message: `本机验证码模块已启动：${captchaService.url}` });
     } catch (error) {
       if (!/EADDRINUSE/.test(String(error && error.code || error && error.message))) throw error;
-      config.captchaProviderUrl = `http://127.0.0.1:${config.captchaPort}/solve`;
-      report({ type: 'captcha_service', message: `复用本机验证码模块：${config.captchaProviderUrl}` });
+      captchaProviderUrl = `http://127.0.0.1:${config.captchaPort}/solve`;
+      report({ type: 'captcha_service', message: `复用本机验证码模块：${captchaProviderUrl}` });
     }
   }
   const connected = Boolean(config.browserUrl);
@@ -468,16 +563,37 @@ async function runHermes(config, callbacks) {
       headless: config.headless,
       userDataDir: config.userDataDir,
       defaultViewport: { width: 1440, height: 960 },
-      args: ['--no-first-run', '--disable-default-apps']
+      ignoreDefaultArgs: ['--enable-automation'],
+      args: [
+        '--no-first-run',
+        '--disable-default-apps',
+        '--disable-blink-features=AutomationControlled'
+      ]
       });
-  const pages = await browser.pages();
-  const page = pages[0] || await browser.newPage();
+  const existingPages = await browser.pages();
+  const page = await browser.newPage();
+  for (const existingPage of existingPages) {
+    try {
+      await Promise.race([
+        existingPage.close({ runBeforeUnload: false }),
+        new Promise(resolve => setTimeout(resolve, 2000))
+      ]);
+    } catch (_) {}
+  }
   page.setDefaultTimeout(30000);
+  const browserVersion = await browser.version().catch(() => '');
+  const versionMatch = String(browserVersion).match(/(?:Chrome|HeadlessChrome)\/([\d.]+)/i);
+  if (versionMatch) {
+    await page.setUserAgent(
+      `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ` +
+      `(KHTML, like Gecko) Chrome/${versionMatch[1]} Safari/537.36`
+    );
+  }
   page.on('console', event => {
     const text = event.text();
     if (/^\[HY8\]/.test(text)) report({ type: 'page', message: text });
   });
-  const preload = preloadSource(config.policy, { captchaProviderUrl: config.captchaProviderUrl });
+  const preload = preloadSource(config.policy, { captchaProviderUrl });
   await page.evaluateOnNewDocument(preload);
   await page.evaluateOnNewDocument(`if (/(^|\\.)91huayi\\.com$/i.test(location.hostname)) {\n${userscript}\n}`);
   await page.goto(config.baseUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -488,12 +604,28 @@ async function runHermes(config, callbacks) {
   const startedAt = Date.now();
   let lastSignature = '';
   let lastTaskSignature = '';
+  let lastTrustedSignature = '';
+  let lastTrustedActionAt = 0;
   while (Date.now() - startedAt < config.maxRuntimeMs) {
     await new Promise(resolve => setTimeout(resolve, 1000));
     if (/\/secure\/login/i.test(page.url())) {
       await handleLogin(page, config, report);
       if (!/study_info_list/i.test(page.url())) {
         await page.goto(config.baseUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      }
+    }
+    if (/course_ware/i.test(page.url()) && Date.now() - lastTrustedActionAt > 800) {
+      const trusted = await clickTrustedPlayerAction(page).catch(() => null);
+      if (trusted) {
+        const trustedSignature = `${page.url()}|${trusted.selector}|${trusted.text}`;
+        if (trustedSignature !== lastTrustedSignature || Date.now() - lastTrustedActionAt > 4000) {
+          report({
+            type: 'trusted_click',
+            message: `已用浏览器原生输入处理播放器提示：${trusted.text || trusted.selector}`
+          });
+        }
+        lastTrustedSignature = trustedSignature;
+        lastTrustedActionAt = Date.now();
       }
     }
     let state;
@@ -510,29 +642,16 @@ async function runHermes(config, callbacks) {
       report({ type: 'plan', tasks: state.planTasks || [] });
     }
     if (state.phase === 'done') {
-      if (config.once) {
-        if (connected) browser.disconnect();
-        else await browser.close();
-        if (captchaService) await captchaService.close();
-      }
       return { status: 'done', state, policy: Core.buildAnnualPlan(state.studyRecords || [], state.catalogRecords || [], config.policy) };
     }
     if (!state.running) {
-      return { status: 'attention', state, browser, captchaService };
+      return { status: 'attention', state };
     }
+    if (config.signal && config.signal.aborted) return { status: 'stopped', state };
   }
-    return { status: 'timeout', state: await readState(page), browser, captchaService };
-  } catch (error) {
-    if (browser) {
-      try {
-        if (connected) browser.disconnect();
-        else await browser.close();
-      } catch (_) {}
-    }
-    if (captchaService) {
-      try { await captchaService.close(); } catch (_) {}
-    }
-    throw error;
+    return { status: 'timeout', state: await readState(page) };
+  } finally {
+    await closeRuntimeResources(browser, captchaService, connected, config.userDataDir);
   }
 }
 
@@ -551,5 +670,9 @@ module.exports = {
   waitForLoginOutcome,
   handleLogin,
   readState,
+  clickTrustedPlayerAction,
+  processExists,
+  killBrowserProcessesForProfile,
+  closeRuntimeResources,
   runHermes
 };

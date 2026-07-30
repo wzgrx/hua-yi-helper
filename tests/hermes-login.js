@@ -51,6 +51,7 @@ const preload = preloadSource({ year: 2025, publicTarget: 5, otherTarget: 20 });
 assert.match(preload, /HY8_POLICY/);
 assert.match(preload, /publicTarget/);
 assert.match(preload, /bridgeKeys/);
+assert.match(preload, /webdriver/);
 assert(!/Object\.assign\(\{\}, value/.test(preload));
 assert(!preload.includes(credentials.password));
 

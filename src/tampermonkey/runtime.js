@@ -801,6 +801,14 @@
     })[0] || null;
   }
 
+  function needsTrustedPlayerClick(element) {
+    return Boolean(element && element.matches && (
+      element.matches('.layer_tips .rig_btn,.study_diaog .btn_sign') ||
+      element.closest('.layer_tips') && element.matches('.rig_btn') ||
+      element.closest('.study_diaog') && element.matches('.btn_sign')
+    ));
+  }
+
   function handlePlayer() {
     if (!state.running) return;
     var cwid = queryParam('cwid');
@@ -809,18 +817,20 @@
     var lastPrompt = null;
     var lastPromptAt = 0;
     var lastResumeAt = 0;
+    var lastMediaCurrent = -1;
+    var lastMediaProgressAt = Date.now();
     if (window.__HY8_TIMER) clearInterval(window.__HY8_TIMER);
     window.__HY8_TIMER = setInterval(function () {
       if (!state.running || state.paused) { clearInterval(window.__HY8_TIMER); return; }
       count++;
       var bodyText = pageText();
-      if (/系统检测到此浏览器安装了异常插件/.test(bodyText)) {
-        clearInterval(window.__HY8_TIMER);
-        setState({ running: false, paused: true, phase: 'blocked', message: '播放器检测到其他异常插件' });
-        return;
-      }
+      var pluginNotice = /系统检测到此浏览器安装了异常插件/.test(bodyText);
       var quizActive = handleClassroomQuiz();
       var media = playerMediaStatus();
+      if (media.current > lastMediaCurrent + 0.25) {
+        lastMediaCurrent = media.current;
+        lastMediaProgressAt = Date.now();
+      }
       if (!quizActive && media.video && !media.ended) {
         try {
           media.video.muted = true;
@@ -841,8 +851,23 @@
       if (prompt && (prompt.element !== lastPrompt || Date.now() - lastPromptAt > 4000)) {
         lastPrompt = prompt.element;
         lastPromptAt = Date.now();
-        log('[播放器] 处理提示：' + prompt.text);
-        humanClick(prompt.element);
+        if (needsTrustedPlayerClick(prompt.element)) {
+          var trustedMessage = '等待 Hermes 处理受保护播放器提示：' + prompt.text;
+          if (state.message !== trustedMessage) setState({ phase: 'player', message: trustedMessage });
+        } else {
+          log('[播放器] 处理提示：' + prompt.text);
+          humanClick(prompt.element);
+        }
+      }
+      if (pluginNotice && Date.now() - lastMediaProgressAt > 180000) {
+        clearInterval(window.__HY8_TIMER);
+        setState({
+          running: false,
+          paused: true,
+          phase: 'blocked',
+          message: '播放器兼容提示持续 3 分钟且进度未变化，交由监督器重启'
+        });
+        return;
       }
       var exam = document.getElementById('jrks');
       if (cwid && enabled(exam)) {
@@ -1430,12 +1455,39 @@
     solveExamCaptcha(examCaptchaElements());
   }
 
+  function selectSurveyChoice(input) {
+    if (!input) return;
+    var surrogate = input.parentElement && input.parentElement.querySelector('a.jqradio,a.jqcheck');
+    if (surrogate && enabled(surrogate)) humanClick(surrogate);
+    else input.click();
+    if (!input.checked) {
+      input.checked = true;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+
   function handleSurvey() {
     if (!state.running) return;
     var form = document.querySelector('form') || document.body;
+    var resume = Array.from(document.querySelectorAll(
+      '.layui-layer-btn0,.ui-dialog-button button,.el-message-box__btns button,[role="dialog"] button'
+    )).find(function (element) {
+      return enabled(element) && /确认|继续|恢复/.test(clean(element.value || element.textContent));
+    });
+    if (resume && /之前已经回答|继续上次|恢复.*答/.test(pageText())) {
+      setState({ phase: 'survey', message: '正在恢复已保存的问卷进度' });
+      humanClick(resume);
+      setTimeout(function () {
+        if (route() === 'survey' && state.running) handleSurvey();
+      }, 700);
+      return;
+    }
     var groups = {};
     Array.from(form.querySelectorAll('input[type="radio"]')).forEach(function (input) { (groups[input.name] || (groups[input.name] = [])).push(input); });
-    Object.keys(groups).forEach(function (name) { if (!groups[name].some(function (item) { return item.checked; })) groups[name][0].click(); });
+    Object.keys(groups).forEach(function (name) {
+      if (!groups[name].some(function (item) { return item.checked; })) selectSurveyChoice(groups[name][0]);
+    });
     var checkboxGroups = {};
     Array.from(form.querySelectorAll('input[type="checkbox"]')).forEach(function (input) {
       var name = input.name || input.id || 'anonymous';
@@ -1448,8 +1500,31 @@
           var label = item.closest('label') || item.parentElement;
           return !/其他|无|以上都不是/.test(clean(label && label.textContent));
         }) || choices[0];
-        humanClick(choice);
+        selectSurveyChoice(choice);
       }
+    });
+    Array.from(form.querySelectorAll(
+      '.field[type="11"],[data-type="11"],[data-question-type="11"]'
+    )).forEach(function (ranking) {
+      var options = Array.from(ranking.querySelectorAll('li,[data-value],[class*="sort-item"]')).filter(enabled);
+      var selected = options.filter(function (item) {
+        return /(^|\s)(check|checked|selected|active)(\s|$)/i.test(classText(item)) ||
+          clean((item.querySelector('.sortnum,[class*="sort-num"]') || {}).textContent);
+      });
+      if (!selected.length) {
+        options.filter(function (item) {
+          return !/其他|无|以上都不是/.test(actionText(item));
+        }).forEach(humanClick);
+      }
+    });
+    Array.from(form.querySelectorAll(
+      'input[type="text"][name],input[type="number"][name],input[type="range"][name]'
+    )).forEach(function (input) {
+      if (clean(input.value)) return;
+      var minimum = Number(input.min);
+      var maximum = Number(input.max);
+      var bounded = isFinite(minimum) && isFinite(maximum) && maximum > minimum;
+      setInputValue(input, bounded ? String(Math.round((minimum + maximum) / 2)) : '满意');
     });
     Array.from(form.querySelectorAll('select')).forEach(function (select) {
       if (!select.value && select.options.length > 1) {
@@ -1458,8 +1533,20 @@
       }
     });
     Array.from(form.querySelectorAll('textarea')).forEach(function (area) { if (!area.value) setInputValue(area, '无'); });
-    var submit = Array.from(form.querySelectorAll('button,input[type="submit"],input[type="button"]')).find(function (element) { return enabled(element) && /提交|完成|下一步/.test(clean(element.value || element.textContent)); });
-    if (submit) setTimeout(function () { submit.click(); }, 1200);
+    var submit = Array.from(form.querySelectorAll(
+      '#ctlNext,.submitbtn,button,input[type="submit"],input[type="button"],[role="button"]'
+    )).find(function (element) {
+      return enabled(element) && /提交|完成|下一步/.test(clean(element.value || element.textContent));
+    });
+    if (submit) {
+      setState({ phase: 'survey', message: '问卷必填项已完成，正在提交' });
+      setTimeout(function () { if (state.running) humanClick(submit); }, 1200);
+    } else {
+      setState({ phase: 'survey', message: '问卷已填写，等待提交入口加载' });
+      setTimeout(function () {
+        if (route() === 'survey' && state.running) handleSurvey();
+      }, 1000);
+    }
   }
 
   function findCaseAction() {
@@ -1690,10 +1777,12 @@
       verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, answerCombinationCount: answerCombinationCount,
       enabled: enabled, normalize: normalize, findCaseAction: findCaseAction, caseVideoStatus: caseVideoStatus,
       playerMediaStatus: playerMediaStatus, findPlayerPrompt: findPlayerPrompt,
+      needsTrustedPlayerClick: needsTrustedPlayerClick,
       parseClassroomQuiz: parseClassroomQuiz, chooseClassroomOption: chooseClassroomOption
       , captchaSettings: captchaSettings, requestCaptchaSolution: requestCaptchaSolution
       , certificateSucceeded: certificateSucceeded, findCertificateApplyAction: findCertificateApplyAction
       , examCaptchaElements: examCaptchaElements, solveExamCaptcha: solveExamCaptcha
+      , selectSurveyChoice: selectSurveyChoice, handleSurvey: handleSurvey
     };
     window.__HY7_TEST_API__ = window.__HY8_TEST_API__;
     init();
