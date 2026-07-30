@@ -296,6 +296,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('根据2014年IWG-2标准，阿尔茨海默病（AD）相关的生物标志物被明确分为哪两类？'), '诊断性标志物和进展性标志物');
   assert.equal(api.verifiedAnswer('2007年IWG-1标准中，诊断可能的AD的核心要求是？'), '早期显著情景记忆损伤+至少1项支持性特征');
   assert.equal(api.verifiedAnswer('关于AD诊断中生物标志物的应用原则，以下哪项是错误的？'), '生物标志物阳性即可确诊AD，无需结合临床症状');
+  assert.equal(api.verifiedAnswer('以下哪项是AD的特征性萎缩表现，对早发型AD尤为重要？'), '楔前叶+顶叶萎缩');
+  assert.equal(api.verifiedAnswer('进行内侧颞叶萎缩评估（MTA）的标准影像学层面为？'), '冠状位 T1WI，脑桥前面水平通过海马体部层面');
+  assert.equal(api.verifiedAnswer('阿尔茨海默病（AD）患者在功能性磁共振成像（fMRI）检查中实施学习和回忆任务时的典型表现为？'), '额叶前区和颞叶内侧皮质激活区域缩小，信号强度降低');
+  assert.equal(api.verifiedAnswer('AD患者在磁共振波谱成像（MRS）检查中最早期的波谱变化为？'), 'NAA/Cr 比值降低，MI/Cr 比值升高');
+  assert.equal(api.verifiedAnswer('磁共振波谱成像（MRS）中AD最早期的波谱变化为？'), 'NAA/Cr 比值降低，MI/Cr 比值升高');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
