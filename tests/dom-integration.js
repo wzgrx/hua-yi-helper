@@ -301,6 +301,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('阿尔茨海默病（AD）患者在功能性磁共振成像（fMRI）检查中实施学习和回忆任务时的典型表现为？'), '额叶前区和颞叶内侧皮质激活区域缩小，信号强度降低');
   assert.equal(api.verifiedAnswer('AD患者在磁共振波谱成像（MRS）检查中最早期的波谱变化为？'), 'NAA/Cr 比值降低，MI/Cr 比值升高');
   assert.equal(api.verifiedAnswer('磁共振波谱成像（MRS）中AD最早期的波谱变化为？'), 'NAA/Cr 比值降低，MI/Cr 比值升高');
+  assert.equal(api.verifiedAnswer('关于肝性脑病，下列说法不正确的是？'), '前期出现昏迷');
+  assert.equal(api.verifiedAnswer('自身免疫性脑炎（AE）导致的认知障碍通常伴随下列哪组症状？'), '癫痫、精神障碍');
+  assert.equal(api.verifiedAnswer('关于血管性认知障碍（VCI）的Newcastle分型，下列哪项描述正确？'), 'VI型指伴AD的脑血管病变');
+  assert.equal(api.verifiedAnswer('根据NIA-AA 2011版诊断标准，下列哪项不属于“很可能的AD痴呆”核心临床标准中的早期突出认知损害表现？'), '早期即出现显著的人格改变和行为异常');
+  assert.equal(api.verifiedAnswer('关于行为变异型额颞叶痴呆，不属于核心临床表现-行为症状的是？'), '找词困难和命名障碍');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
