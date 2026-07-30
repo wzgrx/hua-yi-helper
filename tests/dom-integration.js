@@ -331,6 +331,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('以下属于激越中身体非攻击性行为的是？'), '不恰当的处理事情');
   assert.equal(api.verifiedAnswer('美金刚显著预防AD患者以下哪项BPSD症状的发生？'), '激越/攻击');
   assert.equal(api.verifiedAnswer('AD患者激越发生率随CDR分期变化的趋势是？'), '逐渐升高');
+  assert.equal(api.verifiedAnswer('AD疾病修饰疗法（DMT）的核心目的是？'), '阻断或延缓疾病的进展');
+  assert.equal(api.verifiedAnswer('用于AD患者睡眠障碍治疗，可增强脑内γ-氨基丁酸与受体结合的药物是？'), '地西泮');
+  assert.equal(api.verifiedAnswer('国内指南指出，AD伴发精神行为症状的药物干预核心原则为？'), '抗痴呆治疗为基本，必要时使用精神药物');
+  assert.equal(api.verifiedAnswer('《中国阿尔茨海默病痴呆诊疗指南（2020年版）》指出AD药物治疗的核心原则不包括？'), '根治疾病');
+  assert.equal(api.verifiedAnswer('属于强效高选择性5-羟色胺（5-HT）再摄取抑制剂的AD治疗药物是？'), '帕罗西汀');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
