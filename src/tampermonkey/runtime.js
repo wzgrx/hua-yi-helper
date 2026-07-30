@@ -944,7 +944,12 @@
     ['实现长期有效减重的关键', '使能量代谢处于负平衡状态'],
     ['老年T2D患者（≥65岁）', '摒弃单纯追求体重数字下降，将功能改善与生活质量作为核心导向'],
     ['重度肥胖合并T2D，其BMI阈值', 'BMI>32.5 kg/m2'],
-    ['MDT）全程管理体系覆盖的三个阶段', '减重期、维持期、预防反弹期']
+    ['MDT）全程管理体系覆盖的三个阶段', '减重期、维持期、预防反弹期'],
+    ['在Aβ的不同形态中', '可溶性Aβ寡聚体'],
+    ['属于阿尔茨海默病（AD）的致病基因', 'APP 基因'],
+    ['关于 Aβ 的清除途径', '脑部主要通过蛋白酶降解、血脑屏障清除等途径清除'],
+    ['Aβ 的主要清除部位', '脑部'],
+    ['阿尔茨海默病（AD）的临床表现三联征', '认知障碍（Cognition）、精神行为症状（BPSD）、日常生活能力受损（ADL）']
   ];
   function verifiedAnswer(question) {
     var q = clean(question).replace(/m²/g, 'm2');
@@ -1104,6 +1109,11 @@
     if (changed) write(ANSWER_KEY, learned);
     return changed;
   }
+  function savePassedAnswers(submitted) {
+    return saveLearnedAnswers(Object.keys(submitted || {}).map(function (key) {
+      return { key: key, answer: submitted[key], correct: true };
+    }));
+  }
   function findResultNextAction() {
     return Array.from(document.querySelectorAll(
       '.state_cour_ul input.state_lis_han,input[value="立即学习"],button,a'
@@ -1135,6 +1145,7 @@
       return;
     }
     if (/考试通过|已通过|考试合格|完成项目学习可以申请学分/.test(text)) {
+      savePassedAnswers(examState.submitted);
       delete exams[cwid]; write(EXAM_KEY, exams);
       var nextAction = findResultNextAction();
       setState({ phase: 'course', message: nextAction ? '考试通过，进入下一课件' : '考试通过，返回项目继续' });
@@ -1838,6 +1849,7 @@
       , examCaptchaElements: examCaptchaElements, solveExamCaptcha: solveExamCaptcha
       , selectSurveyChoice: selectSurveyChoice, handleSurvey: handleSurvey
       , blockedApplicationDecision: blockedApplicationDecision
+      , savePassedAnswers: savePassedAnswers
     };
     window.__HY7_TEST_API__ = window.__HY8_TEST_API__;
     init();

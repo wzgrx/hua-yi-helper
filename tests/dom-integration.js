@@ -272,6 +272,8 @@ test('真实验证题库按题干文本匹配', () => {
   const { api } = boot('');
   assert.equal(api.verifiedAnswer('对于老年T2D患者（≥65岁），核心管理目标导向是？'), '摒弃单纯追求体重数字下降，将功能改善与生活质量作为核心导向');
   assert.equal(api.verifiedAnswer('重度肥胖合并T2D，其BMI阈值为？'), 'BMI>32.5 kg/m2');
+  assert.equal(api.verifiedAnswer('以下哪项属于阿尔茨海默病（AD）的致病基因？'), 'APP 基因');
+  assert.equal(api.verifiedAnswer('Aβ 的主要清除部位是?'), '脑部');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
@@ -326,6 +328,15 @@ test('新版结果列表从每一题自身节点提取答案并保持题答对�
   const records = api.parseResultAnswers({});
   assert.deepEqual(Array.from(records, item => item.answer), ['第一题正确答案', '第二题错误答案']);
   assert.deepEqual(Array.from(records, item => item.correct), [true, false]);
+});
+
+test('考试通过后将本轮全部提交答案写入题库', () => {
+  const { api, values } = boot('');
+  assert.equal(api.savePassedAnswers({ question_one: '答案甲', question_two: '答案乙' }), 2);
+  assert.deepEqual(values.get('HY8_ANSWERS'), {
+    question_one: '答案甲',
+    question_two: '答案乙'
+  });
 });
 
 test('考试通过结果页识别新版立即学习入口', () => {
