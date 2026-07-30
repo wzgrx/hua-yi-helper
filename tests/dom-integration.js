@@ -291,6 +291,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('关于认知障碍的病因分类，以下哪项描述符合变性性认知障碍的特点？'), '隐匿起病，进行性加重，症状不可逆');
   assert.equal(api.verifiedAnswer('在辅助检查中，SWI（磁敏感加权成像）主要用于明确？'), '微出血');
   assert.equal(api.verifiedAnswer('关于AD血液生物标志物，以下哪项描述是正确的？'), '家族性AD患者血浆总Aβ或Aβ42水平增高');
+  assert.equal(api.verifiedAnswer('中国2020年AD痴呆诊疗指南中，AD痴呆临床分级的金标准是？'), '临床痴呆评定量表（CDR）');
+  assert.equal(api.verifiedAnswer('2024年IWG-4标准中，将认知功能正常但具有特定生物标志物模式的个体定义为？'), 'AD高风险人群');
+  assert.equal(api.verifiedAnswer('根据2014年IWG-2标准，阿尔茨海默病（AD）相关的生物标志物被明确分为哪两类？'), '诊断性标志物和进展性标志物');
+  assert.equal(api.verifiedAnswer('2007年IWG-1标准中，诊断可能的AD的核心要求是？'), '早期显著情景记忆损伤+至少1项支持性特征');
+  assert.equal(api.verifiedAnswer('关于AD诊断中生物标志物的应用原则，以下哪项是错误的？'), '生物标志物阳性即可确诊AD，无需结合临床症状');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
