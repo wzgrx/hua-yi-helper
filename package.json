@@ -5,7 +5,8 @@
   "scripts": {
     "test": "npm run build && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
     "build": "node scripts/build-userscript.js",
-    "hermes": "node src/hermes/cli.js"
+    "hermes": "node src/hermes/cli.js",
+    "test:live": "node tests/live-login.js"
   },
   "keywords": [
     "huayi",

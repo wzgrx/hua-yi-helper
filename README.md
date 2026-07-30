@@ -133,6 +133,7 @@ export HUAYI_PASSWORD='PASSWORD'
 npm ci
 npm run build
 npm test
+npm run test:live
 ```
 
 测试包括：
@@ -143,6 +144,7 @@ npm test
 - Win11/WSL 浏览器路径与参数；
 - 最新登录表单和验证码等待；
 - Puppeteer 真实浏览器烟雾测试；
+- 华医网在线登录页 HTTP/DOM 布局测试（`npm run test:live`，不提交表单）；
 - 全源码语法、版本一致性、密钥泄露和回归约束。
 
 需要把本机浏览器烟雾测试设为强制时：

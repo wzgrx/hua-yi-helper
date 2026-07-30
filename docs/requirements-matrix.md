@@ -12,7 +12,7 @@
 | Win11 | Edge/Chrome 自动路径发现、PowerShell 启动器 | `tests/hermes-config.js` |
 | WSL | `/mnt/c` 浏览器探测、Bash 启动器、DevTools URL 连接 | WSL 路径与参数测试 |
 | Hermes | Puppeteer 运行器、浏览器资料目录、状态监视 | 配置、登录和浏览器烟雾测试 |
-| 自动登录 | 真实字段、密码同步、协议勾选、自动提交和断点恢复 | `tests/hermes-login.js` 与在线布局检查 |
+| 自动登录 | 真实字段、密码同步、协议勾选、自动提交和断点恢复 | `tests/hermes-login.js` 与 `tests/live-login.js` |
 | 图形验证码 | DOM 检测、聚焦、输入后自动提交、单次码环境变量 | 登录计划测试 |
 | 学习记录 | 年度筛选、学分/类别/来源/状态/操作解析 | DOM 与异步测试 |
 | 课程目录 | 公需/继教/专项扫描、去重、候选缓存、切换目录 | DOM 和模块契约 |
