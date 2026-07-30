@@ -274,6 +274,8 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('重度肥胖合并T2D，其BMI阈值为？'), 'BMI>32.5 kg/m2');
   assert.equal(api.verifiedAnswer('以下哪项属于阿尔茨海默病（AD）的致病基因？'), 'APP 基因');
   assert.equal(api.verifiedAnswer('Aβ 的主要清除部位是?'), '脑部');
+  assert.equal(api.verifiedAnswer('认知障碍自评量表（AD8）的评分标准中，提示需进一步临床评估的总分阈值是？'), '≥2 分');
+  assert.equal(api.verifiedAnswer('MES量表主要涵盖哪两个认知域的评估？'), '记忆与执行功能');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
