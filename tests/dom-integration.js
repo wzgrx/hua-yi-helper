@@ -281,6 +281,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('以下哪项是评估痴呆患者精神行为症状的常用量表？'), 'NPI');
   assert.equal(api.verifiedAnswer('以下哪种量表主要用于评估痴呆患者的日常生活功能？'), 'ADL');
   assert.equal(api.verifiedAnswer('在痴呆诊疗中，用于评估患者总体退化程度的量表是？'), 'GDS');
+  assert.equal(api.verifiedAnswer('在结构影像学检查中，对于痴呆诊断首选的检查手段是？'), 'MRI');
+  assert.equal(api.verifiedAnswer('在常见认知障碍疾病的临床特点对比中，路易体痴呆（DLB）的典型运动症状是？'), '帕金森征（行动迟缓，步态异常）');
+  assert.equal(api.verifiedAnswer('在病史采集中，以下哪项属于“精神行为”方面的评估内容？'), '抑郁和焦虑、幻觉和妄想');
+  assert.equal(api.verifiedAnswer('在FDG PET显像中，典型的阿尔茨海默病（AD）代谢模式是？'), '枕顶叶为主，额叶其次');
+  assert.equal(api.verifiedAnswer('关于基因检测的推荐意见，以下哪项是正确的？'), '有明确痴呆家族史的患者应进行基因检测（A级推荐）');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
