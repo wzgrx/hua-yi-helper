@@ -1030,10 +1030,18 @@
   ]);
   function verifiedEntry(question) {
     var q = normalize(clean(question).replace(/m²/g, 'm2'));
+    var best = null;
+    var bestLength = -1;
     for (var i = 0; i < VERIFIED.length; i++) {
-      if (q.indexOf(normalize(VERIFIED[i][0])) >= 0) return VERIFIED[i];
+      var fragment = normalize(VERIFIED[i][0]);
+      if (!fragment || q.indexOf(fragment) < 0) continue;
+      if (q === fragment) return VERIFIED[i];
+      if (fragment.length > bestLength) {
+        best = VERIFIED[i];
+        bestLength = fragment.length;
+      }
     }
-    return null;
+    return best;
   }
   function verifiedAnswer(question) {
     var entry = verifiedEntry(question);
