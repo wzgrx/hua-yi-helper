@@ -321,6 +321,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('在智能障碍基础上出现的与周围环境不协调的愉快体验，表情单调刻板的是？'), '欣快');
   assert.equal(api.verifiedAnswer('以下哪项不是 BPSD 造成的不良后果？'), '减慢痴呆患者认知功能下降速度');
   assert.equal(api.verifiedAnswer('以下不属于 AD 患者精神病性症状的是？'), '抑郁');
+  assert.equal(api.verifiedAnswer('以下哪项不属于BPSD中的睡眠障碍类型？'), '易激惹');
+  assert.equal(api.verifiedAnswer('以下哪项属于BPSD早期识别量表？'), '神经精神问卷（NPI）');
+  assert.equal(api.verifiedAnswer('诊治BPSD的价值不包括？'), '与认知障碍及日常生活能力下降互不影响');
+  assert.equal(api.verifiedAnswer('痴呆临床表现的ABC症状中，A代表的是？'), '日常生活能力下降');
+  assert.equal(api.verifiedAnswer('路易体痴呆（DLB）的BPSD核心特点是？'), '幻觉早而明显');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
