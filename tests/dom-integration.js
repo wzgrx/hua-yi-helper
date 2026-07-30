@@ -336,6 +336,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('国内指南指出，AD伴发精神行为症状的药物干预核心原则为？'), '抗痴呆治疗为基本，必要时使用精神药物');
   assert.equal(api.verifiedAnswer('《中国阿尔茨海默病痴呆诊疗指南（2020年版）》指出AD药物治疗的核心原则不包括？'), '根治疾病');
   assert.equal(api.verifiedAnswer('属于强效高选择性5-羟色胺（5-HT）再摄取抑制剂的AD治疗药物是？'), '帕罗西汀');
+  assert.equal(api.verifiedAnswer('BPSD临床管理的DICE过程不包括以下哪项？'), '药物干预');
+  assert.equal(api.verifiedAnswer('关于BPSD诊治的误区，说法错误的是？'), '重视社会心理干预的核心作用');
+  assert.equal(api.verifiedAnswer('经颅直流电刺激（tDCS）的阳极刺激作用是？'), '增强刺激部位神经元的兴奋性');
+  assert.equal(api.verifiedAnswer('下列哪项不属于AD的脑相关危险因素？'), '2型糖尿病');
+  assert.equal(api.verifiedAnswer('体育锻炼对AD患者BPSD的影响是？'), '显著改善抑郁症状，整体BPSD无显著改善');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
