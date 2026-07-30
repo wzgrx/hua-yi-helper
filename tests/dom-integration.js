@@ -341,6 +341,12 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('经颅直流电刺激（tDCS）的阳极刺激作用是？'), '增强刺激部位神经元的兴奋性');
   assert.equal(api.verifiedAnswer('下列哪项不属于AD的脑相关危险因素？'), '2型糖尿病');
   assert.equal(api.verifiedAnswer('体育锻炼对AD患者BPSD的影响是？'), '显著改善抑郁症状，整体BPSD无显著改善');
+  assert.equal(api.verifiedAnswer('关于AD治疗药物的用药安全，以下哪项是正确的？'), '多奈哌齐若出现肝肾功能损害，应考虑减量或停药');
+  assert.equal(api.verifiedAnswer('共病管理模式的要素不包括以下哪项？'), '完全依赖社区志愿者管理');
+  assert.equal(api.verifiedAnswer('在AD与房颤的关系中，以下哪项是两者共有的风险因素？'), '甲状腺功能亢进');
+  assert.equal(api.verifiedAnswer('关于 AD 患者共病的流行病学特点，说法正确的是？'), '65 岁以上老年痴呆患者共病发生率更高');
+  assert.equal(api.verifiedAnswer('关于阻塞性睡眠呼吸暂停（OSA）对AD的影响，以下哪项错误？'), 'AD患者对CPAP治疗的耐受性极好');
+  assert.equal(api.verifiedOptionKey('在 ad 与房颤的关系中，以下哪项是两者共有的风险因素？'), 'C');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
@@ -413,6 +419,26 @@ test('重复答案文本按选项字母区分，排除B后仍可选择C', () => 
   assert.equal(choices[0].optionKey, 'C');
   assert.equal(api.answerCombinationCount(questions, examState), 1);
   assert(api.fixedAnswerSignature(questions, choices, examState).includes('@C'));
+});
+
+test('全新题库直接使用站点验证的重复文本选项字母', () => {
+  const question = '在AD与房颤的关系中，以下哪项是两者共有的风险因素？';
+  const questions = [{
+    question,
+    key: 'verified-duplicate',
+    options: [
+      { text: '低血压', optionKey: 'A' },
+      { text: '甲状腺功能亢进', optionKey: 'B' },
+      { text: '甲状腺功能亢进', optionKey: 'C' },
+      { text: '低血糖', optionKey: 'D' },
+      { text: '贫血', optionKey: 'E' }
+    ]
+  }];
+  const { api } = boot('');
+  const choices = api.chooseAnswers(questions, { attempt: 0 });
+  assert.equal(choices[0].optionKey, 'C');
+  assert.equal(api.answerCombinationCount(questions, {}), 1);
+  assert(api.fixedAnswerSignature(questions, choices, {}).includes('@C'));
 });
 
 test('结果页仅学习判定正确的题目', () => {

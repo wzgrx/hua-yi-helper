@@ -1021,12 +1021,27 @@
     ['关于BPSD诊治的误区，说法错误', '重视社会心理干预的核心作用'],
     ['经颅直流电刺激（tDCS）的阳极刺激作用', '增强刺激部位神经元的兴奋性'],
     ['不属于AD的脑相关危险因素', '2型糖尿病'],
-    ['体育锻炼对AD患者BPSD的影响', '显著改善抑郁症状，整体BPSD无显著改善']
+    ['体育锻炼对AD患者BPSD的影响', '显著改善抑郁症状，整体BPSD无显著改善'],
+    ['AD治疗药物的用药安全', '多奈哌齐若出现肝肾功能损害，应考虑减量或停药', 'C'],
+    ['共病管理模式的要素不包括', '完全依赖社区志愿者管理', 'E'],
+    ['AD与房颤的关系中', '甲状腺功能亢进', 'C'],
+    ['AD患者共病的流行病学特点', '65 岁以上老年痴呆患者共病发生率更高', 'D'],
+    ['阻塞性睡眠呼吸暂停（OSA）对AD的影响', 'AD患者对CPAP治疗的耐受性极好', 'E']
   ];
+  function verifiedEntry(question) {
+    var q = normalize(clean(question).replace(/m²/g, 'm2'));
+    for (var i = 0; i < VERIFIED.length; i++) {
+      if (q.indexOf(normalize(VERIFIED[i][0])) >= 0) return VERIFIED[i];
+    }
+    return null;
+  }
   function verifiedAnswer(question) {
-    var q = clean(question).replace(/m²/g, 'm2');
-    for (var i = 0; i < VERIFIED.length; i++) if (q.indexOf(VERIFIED[i][0]) >= 0) return VERIFIED[i][1];
-    return '';
+    var entry = verifiedEntry(question);
+    return entry ? entry[1] : '';
+  }
+  function verifiedOptionKey(question) {
+    var entry = verifiedEntry(question);
+    return entry && entry[2] ? clean(entry[2]).toUpperCase() : '';
   }
   function scoreOption(question, option) {
     var score = 0;
@@ -1092,7 +1107,7 @@
     return questions.map(function (item) {
       var known = learned[item.key] || verifiedAnswer(item.question);
       var rejectedValues = rejected[item.key] || [];
-      var exact = knownExamOption(item, known, learnedOptions[item.key], rejectedValues);
+      var exact = knownExamOption(item, known, learnedOptions[item.key] || verifiedOptionKey(item.question), rejectedValues);
       if (exact) return exact;
       var available = item.options.filter(function (option) {
         return !optionIsRejected(option, rejectedValues);
@@ -1110,7 +1125,9 @@
     var rejected = examState && examState.rejected || {};
     var fixed = questions.every(function (item) {
       var known = learned[item.key] || verifiedAnswer(item.question);
-      return !!knownExamOption(item, known, learnedOptions[item.key], rejected[item.key] || []);
+      return !!knownExamOption(
+        item, known, learnedOptions[item.key] || verifiedOptionKey(item.question), rejected[item.key] || []
+      );
     });
     if (!fixed) return '';
     return choices.map(function (choice, index) {
@@ -1125,7 +1142,9 @@
     return questions.reduce(function (total, item) {
       var known = learned[item.key] || verifiedAnswer(item.question);
       var rejectedValues = rejected[item.key] || [];
-      var fixed = !!knownExamOption(item, known, learnedOptions[item.key], rejectedValues);
+      var fixed = !!knownExamOption(
+        item, known, learnedOptions[item.key] || verifiedOptionKey(item.question), rejectedValues
+      );
       if (fixed) return total;
       var availableCount = item.options.filter(function (option) {
         return !optionIsRejected(option, rejectedValues);
@@ -2029,7 +2048,8 @@
       parseExam: parseExam, parseResultAnswers: parseResultAnswers, saveLearnedAnswers: saveLearnedAnswers,
       saveRejectedAnswers: saveRejectedAnswers,
       findResultNextAction: findResultNextAction,
-      verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, answerCombinationCount: answerCombinationCount,
+      verifiedAnswer: verifiedAnswer, verifiedOptionKey: verifiedOptionKey,
+      scoreOption: scoreOption, chooseAnswers: chooseAnswers, answerCombinationCount: answerCombinationCount,
       fixedAnswerSignature: fixedAnswerSignature, optionIsRejected: optionIsRejected, knownExamOption: knownExamOption,
       enabled: enabled, normalize: normalize, findCaseAction: findCaseAction, caseVideoStatus: caseVideoStatus,
       playerMediaStatus: playerMediaStatus, findPlayerPrompt: findPlayerPrompt,
