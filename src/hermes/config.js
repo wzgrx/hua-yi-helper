@@ -90,6 +90,20 @@ function loadConfig(argv, environment) {
     username: String(args.username || env.HUAYI_USERNAME || ''),
     password: String(args.password || env.HUAYI_PASSWORD || ''),
     captchaCode: String(args.captcha || env.HUAYI_CAPTCHA_CODE || ''),
+    captchaAuto: parseBoolean(
+      args['captcha-auto'] !== undefined ? args['captcha-auto'] : env.HUAYI_CAPTCHA_AUTO,
+      true
+    ),
+    captchaMaxAttempts: Math.max(1, Number(
+      args['captcha-max-attempts'] || env.HUAYI_CAPTCHA_MAX_ATTEMPTS || 6
+    )),
+    captchaExpectedLength: Math.max(1, Number(
+      args['captcha-length'] || env.HUAYI_CAPTCHA_LENGTH || 5
+    )),
+    captchaPort: Math.max(0, Number(args['captcha-port'] || env.HUAYI_CAPTCHA_PORT || 17891)),
+    captchaProviderUrl: String(
+      args['captcha-provider-url'] || env.HUAYI_CAPTCHA_PROVIDER_URL || ''
+    ),
     headless: parseBoolean(args.headless !== undefined ? args.headless : env.HUAYI_HEADLESS, false),
     maxRuntimeMs: Number(args['max-runtime-ms'] || env.HUAYI_MAX_RUNTIME_MS || 8 * 60 * 60 * 1000),
     captchaTimeoutMs: Number(args['captcha-timeout-ms'] || env.HUAYI_CAPTCHA_TIMEOUT_MS || 10 * 60 * 1000),
@@ -106,6 +120,10 @@ function publicConfig(config) {
     baseUrl: config.baseUrl,
     headless: config.headless,
     maxRuntimeMs: config.maxRuntimeMs,
+    captchaAuto: config.captchaAuto,
+    captchaMaxAttempts: config.captchaMaxAttempts,
+    captchaExpectedLength: config.captchaExpectedLength,
+    captchaProviderConfigured: Boolean(config.captchaProviderUrl),
     policy: config.policy,
     usernameConfigured: Boolean(config.username),
     passwordConfigured: Boolean(config.password)

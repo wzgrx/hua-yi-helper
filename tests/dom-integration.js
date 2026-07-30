@@ -21,6 +21,8 @@ test('路由识别真实页面', () => {
   assert.equal(boot('', 'https://cme28.91huayi.com/pages/exam.aspx?cwid=x').api.route(), 'exam');
   assert.equal(boot('', 'https://cme28.91huayi.com/pages/exam_code.aspx?cwid=x').api.route(), 'captcha');
   assert.equal(boot('', 'https://cme28.91huayi.com/course_ware/course_ware_polyv.aspx?cwid=x').api.route(), 'player');
+  assert.equal(boot('', 'https://cme28.91huayi.com/course_ware/course_ware.aspx?cwid=x').api.route(), 'player');
+  assert.equal(boot('', 'https://cme28.91huayi.com/course_ware/course_list.aspx?cid=x').api.route(), 'course');
 });
 
 test('学习记录按公需/其他分别累计已申请学分并提取动作', () => {
@@ -36,12 +38,40 @@ test('学习记录按公需/其他分别累计已申请学分并提取动作', (
   assert.equal(info.summary.otherEarned, 0);
 });
 
+test('学习记录自动切换到策略年度并兼容历史记录无链接结构', () => {
+  const { api, window } = boot(`<select><option value="2026" selected>2026</option><option value="2025">2025</option></select>
+    <table><tbody>
+      <tr><td>【全员】2025年继续医学教育公需课</td><td>宁卫继2025</td><td>必修课 5.0学分</td><td>已申请</td><td></td><td></td><td></td><td></td></tr>
+      <tr><td>【全员】专业专项</td><td>卫卫继2025</td><td>市级 20.0学分</td><td>已申请</td><td></td><td></td><td></td><td></td></tr>
+    </tbody></table>`, 'https://cme28.91huayi.com/pages/study_info_list.aspx', {
+      HY8_POLICY: { year: 2025, publicTarget: 5, otherTarget: 20 }
+    });
+  assert.equal(api.selectStudyYear(), true);
+  assert.equal(window.document.querySelector('select').value, '2025');
+  const info = api.scanStudy();
+  assert.equal(info.ready, true);
+  assert.equal(info.summary.publicEarned, 5);
+  assert.equal(info.summary.otherEarned, 20);
+});
+
 test('课程详情解析真实状态与 cwid', () => {
   const { api } = boot(`<div class="course"><a class="cw-title-link" href="/course_ware/course_ware.aspx?cwid=one">课件一</a><button>已完成</button></div>
   <div class="course"><a class="cw-title-link" href="/course_ware/course_ware.aspx?cwid=two">课件二</a><button>待考试</button></div>
   <div class="course" data-href="/course_ware/course_ware.aspx?cwid=three"><span class="course-title">课件三</span><button>学习中</button></div>`);
   const rows = api.scanCoursewares();
   assert.deepEqual(Array.from(rows, x => [x.cwid, x.status]), [['one','已完成'],['two','待考试'],['three','学习中']]);
+});
+
+test('课程详情兼容新版 lis-inside-content 与 h2 onclick', () => {
+  const { api } = boot(`<ul>
+    <li class="lis-inside-content"><i id="top_play"></i><h2 onclick="toCourse('/course_ware/course_ware_polyv.aspx?cwid=new-one')">新版课件一</h2><button>学习中</button></li>
+    <li class="lis-inside-content"><h2 onclick="open('/course_ware/course_ware_cc.aspx?cwid=new-two')">新版课件二</h2><button>待考试</button></li>
+    <li class="lis-inside-content" onclick="javascript:window.location.href='/course_ware/course_ware.aspx?cwid=new-three'"><h2>新版课件三</h2><button>未学习</button></li>
+  </ul>`);
+  const rows = api.scanCoursewares();
+  assert.deepEqual(Array.from(rows, item => [item.cwid, item.status]), [
+    ['new-one','学习中'],['new-two','待考试'],['new-three','未学习']
+  ]);
 });
 
 test('课程目录区分公需、继续教育和全员专项候选', () => {
@@ -64,6 +94,8 @@ test('课程目录区分公需、继续教育和全员专项候选', () => {
 
 test('登录页识别最新真实字段与隐藏密码字段', () => {
   const { api } = boot(`<form id="form1">
+    <img id="show_type_more" src="/images/ben_img.png">
+    <dd id="type_pwd"><span>密码登录</span></dd>
     <input id="txt_user_name" name="txt_user_name">
     <input id="txt_user_pwd" type="text">
     <input id="txt_user_pwd_real" name="txt_user_pwd" type="hidden">
@@ -73,8 +105,72 @@ test('登录页识别最新真实字段与隐藏密码字段', () => {
     <button class="btn_login" type="button">登 录</button>
   </form>`, 'https://cme28.91huayi.com/secure/login.aspx');
   const elements = api.loginElements();
+  assert(elements.more && elements.passwordMode);
   assert(elements.username && elements.password && elements.passwordReal);
   assert(elements.captcha && elements.captchaImage && elements.agreement && elements.submit);
+});
+
+test('播放器识别新版签到、继续学习提示及原生媒体状态', () => {
+  const { api } = boot(`<video></video><div class="study_diaog"><button class="btn_sign">签到</button></div>`,
+    'https://cme28.91huayi.com/course_ware/course_ware_polyv.aspx?cwid=x');
+  const media = api.playerMediaStatus();
+  assert.equal(media.found, true);
+  const prompt = api.findPlayerPrompt();
+  assert(prompt);
+  assert.equal(prompt.text, '签到');
+});
+
+test('播放器兼容新版 page player 桥接进度接口', () => {
+  const { api, window } = boot('<main>播放器</main>',
+    'https://cme28.91huayi.com/course_ware/course_ware.aspx?cwid=x');
+  window.player = {
+    j2s_getCurrentTime: () => 59,
+    j2s_getDuration: () => 60,
+    j2s_resumeVideo: () => {}
+  };
+  const media = api.playerMediaStatus();
+  assert.equal(media.found, true);
+  assert.equal(media.current, 59);
+  assert.equal(media.duration, 60);
+  assert.equal(media.ended, true);
+});
+
+test('课堂问答解析、确定性重试与正确答案复用', () => {
+  const html = `<div class="pv-ask-modal-wrap">
+    <div class="pv-ask-right">课堂题目</div>
+    <div class="pv-ask-form">
+      <label><input type="radio" name="q" value="A">A、答案甲</label>
+      <label><input type="radio" name="q" value="B">B、答案乙</label>
+    </div>
+    <button class="pv-ask-submit">提交</button>
+  </div>`;
+  const firstBoot = boot(html);
+  const quiz = firstBoot.api.parseClassroomQuiz();
+  assert.equal(quiz.question, '课堂题目');
+  assert.equal(quiz.options.length, 2);
+  assert.equal(firstBoot.api.chooseClassroomOption(quiz, { attempt: 0 }).text, '答案甲');
+  assert.equal(firstBoot.api.chooseClassroomOption(quiz, { attempt: 1 }).text, '答案乙');
+
+  const learnedBoot = boot(html, undefined, { HY8_ANSWERS: { 'classroom:课堂题目': '答案乙' } });
+  const learnedQuiz = learnedBoot.api.parseClassroomQuiz();
+  assert.equal(learnedBoot.api.chooseClassroomOption(learnedQuiz, { attempt: 0 }).text, '答案乙');
+});
+
+test('课堂问答结果页识别正确和错误信号', () => {
+  const correct = boot('<div class="pv-ask-modal-wrap pv-ask-modal-answer"><div class="pv-ask-right">题目</div><i class="pv-right-icon"></i><button class="pv-ask-skip">继续观看</button></div>');
+  assert.equal(correct.api.parseClassroomQuiz().correct, true);
+  const wrong = boot('<div class="pv-ask-modal-wrap pv-ask-modal-answer"><div class="pv-ask-right">题目</div><i class="pv-wrong-icon"></i><button class="pv-ask-skip">继续观看</button></div>');
+  assert.equal(wrong.api.parseClassroomQuiz().correct, false);
+});
+
+test('播放器禁用态 inputstyle2_2 不会提前进入考试', () => {
+  const { api, window } = boot('<input id="jrks" class="inputstyle2 inputstyle2_2" value="开始考试">');
+  assert.equal(api.enabled(window.document.getElementById('jrks')), false);
+});
+
+test('隐藏弹窗中的按钮不会被当作可执行提示', () => {
+  const { api } = boot('<div class="study_diaog" style="display:none"><button class="btn_sign">签到</button></div>');
+  assert.equal(api.findPlayerPrompt(), null);
 });
 
 test('考试按 name 分组并提取五道真实格式题', () => {
@@ -127,6 +223,14 @@ test('结果页仅学习判定正确的题目', () => {
   assert.equal(learned[records[1].key], undefined);
 });
 
+test('考试通过结果页识别新版立即学习入口', () => {
+  const { api } = boot('<ul class="state_cour_ul"><li><p>下一课件</p><input class="state_lis_han" type="button" value="立即学习"></li></ul>',
+    'https://cme28.91huayi.com/pages/exam_result.aspx?cwid=x');
+  const next = api.findResultNextAction();
+  assert(next);
+  assert.equal(next.value, '立即学习');
+});
+
 test('互动病例能识别普通 div/span 可点击动作', () => {
   const { api, window } = boot('<main><div class=\"case-card\"><div>3小时生死竞速：房颤脑梗患者救治全纪实</div><span class=\"view-case\">查看病例</span></div></main>', 'https://hdbl.91huayi.com/?x=1#/home');
   const action = api.findCaseAction();
@@ -165,6 +269,18 @@ test('新脚本启动时清理旧 HY7 面板并只保留 HY8 面板', () => {
   assert.equal(hosts.length, 1);
   assert.match(hosts[0].shadowRoot.textContent, /华医助手 v8\.\d+\.\d+/);
   assert.equal(window.document.querySelectorAll('#HY7_HOST').length, 0);
+});
+
+test('控制面板直接列出年度任务清单', () => {
+  const { window } = boot('<main>内容</main>', undefined, {
+    HY8_STATE: {
+      running: false,
+      planTasks: [{ type: 'enroll', name: '公需示例课', credit: 5, source: '继续教育公需课' }],
+      logs: []
+    }
+  });
+  const host = window.document.querySelector('#HY8_HOST');
+  assert.match(host.shadowRoot.getElementById('plan').textContent, /选课.*公需示例课.*5分.*继续教育公需课/);
 });
 
 test('disabled 与 aria-disabled 均不可用', () => {

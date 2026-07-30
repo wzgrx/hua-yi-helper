@@ -3,6 +3,8 @@
 const assert = require('assert');
 const { LOGIN_SELECTORS, buildLoginPlan, preloadSource } = require('../src/hermes/runner');
 
+assert.match(LOGIN_SELECTORS.more, /show_type_more/);
+assert.match(LOGIN_SELECTORS.passwordMode, /type_pwd/);
 assert.match(LOGIN_SELECTORS.username, /txt_user_name/);
 assert.match(LOGIN_SELECTORS.password, /txt_user_pwd/);
 assert.match(LOGIN_SELECTORS.passwordReal, /txt_user_pwd_real/);

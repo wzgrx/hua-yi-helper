@@ -12,8 +12,8 @@
 | Win11 | Edge/Chrome 自动路径发现、PowerShell 启动器 | `tests/hermes-config.js` |
 | WSL | `/mnt/c` 浏览器探测、Bash 启动器、DevTools URL 连接 | WSL 路径与参数测试 |
 | Hermes | Puppeteer 运行器、浏览器资料目录、状态监视 | 配置、登录和浏览器烟雾测试 |
-| 自动登录 | 真实字段、密码同步、协议勾选、自动提交和断点恢复 | `tests/hermes-login.js` 与 `tests/live-login.js` |
-| 图形验证码 | DOM 检测、聚焦、输入后自动提交、单次码环境变量 | 登录计划测试 |
+| 自动登录 | 微信/短信/密码模式切换、真实字段、密码同步、协议勾选、提交重试和断点恢复 | `tests/hermes-login.js`、`tests/live-login.js` 与真实 `test:login` |
+| 图形验证码 | 本机 Tesseract.js、Sharp 预处理、定宽数字分割、共识识别、回环 OCR 服务 | `tests/captcha.js` 与 12 个真实验证码回归 |
 | 学习记录 | 年度筛选、学分/类别/来源/状态/操作解析 | DOM 与异步测试 |
 | 课程目录 | 公需/继教/专项扫描、去重、候选缓存、切换目录 | DOM 和模块契约 |
 | 课件学习 | 真实 `cid`/`cwid`、待考试直达、播放器入口观察 | DOM 与异步测试 |
@@ -27,6 +27,8 @@
 2026-07-30 通过 Win11 Edge 中的当前登录页确认：
 
 - 表单：`#form1`
+- 更多登录方式：`#show_type_more`
+- 密码登录：`#type_pwd`
 - 用户名：`#txt_user_name`
 - 显示密码：`#txt_user_pwd`
 - 实际提交密码：`#txt_user_pwd_real`
@@ -35,4 +37,6 @@
 - 协议勾选：`#agree1`
 - 登录按钮：`.btn_login`
 
-课程与考试选择器同时保留当前页面结构和已公开脚本中仍有效的兼容结构，例如 `div.course`、`course_ware.aspx?cwid=`、`#jrks`、`table.tablestyle`、`.state_cour_lis` 与 `bar_img`。
+学习记录当前列为“项目名称 / 项目编号 / 学分类型 / 学习状态 / 学分申请时间 / 机构 / 学习进度 / 操作”，继续教育入口为 `/cme/index.html`，全员专项入口为 `/pages/fme.aspx`。
+
+课程与考试选择器同时保留当前页面结构和公开页面脚本中的兼容结构，例如 `.lis-inside-content`、`course_ware.aspx?cwid=`、`#jrks`、`.pv-ask-modal-wrap`、`player.j2s_getCurrentTime()`、`.state_cour_ul input.state_lis_han` 与 `bar_img`。

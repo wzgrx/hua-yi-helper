@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const puppeteer = require('puppeteer-core');
 const { resolveBrowser } = require('../src/hermes/config');
+const { ensurePasswordLogin } = require('../src/hermes/runner');
 
 (async () => {
   const executablePath = resolveBrowser(process.env.HUAYI_BROWSER);
@@ -24,25 +25,30 @@ const { resolveBrowser } = require('../src/hermes/config');
       { waitUntil: 'domcontentloaded', timeout: 60000 }
     );
     assert(response && response.ok(), `HTTP ${response && response.status()}`);
+    await ensurePasswordLogin(page);
     const layout = await page.evaluate(() => {
       const form = document.querySelector('#form1');
       const one = selector => document.querySelector(selector);
       return {
         title: document.title,
+        more: Boolean(one('#show_type_more')),
+        passwordMode: Boolean(one('#type_pwd')),
         form: Boolean(form),
         method: form ? String(form.method || '').toLowerCase() : '',
         username: Boolean(one('#txt_user_name[name="txt_user_name"]')),
+        usernameVisible: Boolean(one('#txt_user_name') && one('#txt_user_name').getBoundingClientRect().width),
         password: Boolean(one('#txt_user_pwd')),
         passwordReal: Boolean(one('#txt_user_pwd_real[name="txt_user_pwd"]')),
         captcha: Boolean(one('#txt_img_code[name="txt_img_code"]')),
         captchaImage: Boolean(one('#yzm_img[src*="CheckCode"]')),
+        captchaImageVisible: Boolean(one('#yzm_img') && one('#yzm_img').getBoundingClientRect().width),
         agreement: Boolean(one('#agree1[type="checkbox"]')),
         submit: Boolean(one('.btn_login'))
       };
     });
     assert.equal(layout.form, true);
     assert.equal(layout.method, 'post');
-    for (const field of ['username', 'password', 'passwordReal', 'captcha', 'captchaImage', 'agreement', 'submit']) {
+    for (const field of ['more', 'passwordMode', 'username', 'usernameVisible', 'password', 'passwordReal', 'captcha', 'captchaImage', 'captchaImageVisible', 'agreement', 'submit']) {
       assert.equal(layout[field], true, `缺少最新登录字段：${field}`);
     }
     console.log(`华医网在线登录布局测试通过：${layout.title}`);

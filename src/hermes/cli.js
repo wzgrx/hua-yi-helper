@@ -11,6 +11,11 @@ async function main() {
     report(event) {
       if (event.state) {
         console.log(`[Hermes] ${event.state.phase}: ${event.state.message || ''}`);
+      } else if (event.tasks) {
+        console.log('[Hermes] 年度任务清单');
+        event.tasks.forEach((task, index) => {
+          console.log(`  ${index + 1}. [${task.type}] ${task.name} | ${task.credit}分 | ${task.source}`);
+        });
       } else {
         console.log(`[Hermes] ${event.message}`);
       }

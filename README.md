@@ -1,4 +1,4 @@
-# 华医网学习助手 v8
+# 华医网学习助手 v8.1
 
 面向华医网继续医学教育流程的跨端自动化实现。v8 将年度学分规划抽成共享核心，并由 Tampermonkey 与 Hermes/Puppeteer 共用：目标年度默认要求 **公需课 5 分**，再从**继续教育**和**全员专项**中选择课程补足**其他 20 分**。
 
@@ -9,6 +9,8 @@ flowchart LR
     P["年度策略：公需 5 + 其他 20"] --> C["共享规划核心"]
     C --> T["Tampermonkey 单文件"]
     C --> H["Hermes / Puppeteer"]
+    H --> O["本机验证码 OCR"]
+    O --> T
     T --> W["华医网页面状态机"]
     H --> E["Win11 Edge / Chrome"]
     H --> L["WSL + Windows Edge 或 Linux Chromium"]
@@ -21,6 +23,8 @@ flowchart LR
 - `src/tampermonkey/runtime.js`：页面路由、断点恢复、自动登录、学习/考试/证书/问卷/病例流程。
 - `scripts/build-userscript.js`：把共享核心和浏览器运行时编译成单文件脚本。
 - `src/hermes/`：Win11、WSL、Linux、macOS 浏览器发现和 Hermes/Puppeteer 运行器。
+- `src/hermes/captcha.js`：Sharp 多通道预处理、定宽分割和 Tesseract.js 数字共识识别。
+- `src/hermes/captcha-server.js`：仅监听 `127.0.0.1` 的 Tampermonkey OCR 桥。
 - `src/tampermonkey/hua-yi-helper.user.js`：生成后的直接安装文件。
 
 ## 年度智能规划
@@ -45,7 +49,7 @@ flowchart LR
 
 1. 安装 Tampermonkey。
 2. 打开 <https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js>
-3. 确认版本为 `8.0.0`。
+3. 确认版本为 `8.1.0`。
 4. 登录华医网，打开学习记录页，点击“开始/继续”。
 
 脚本名称保留为“华医网学习助手 v6”，用于让已安装的旧脚本按同一身份原位升级；实际版本由 `@version` 标识。
@@ -58,8 +62,18 @@ flowchart LR
 - 同步填写显示密码框 `#txt_user_pwd` 与真实提交字段 `#txt_user_pwd_real`；
 - 勾选 `#agree1`；
 - 识别 `#txt_img_code` / `#yzm_img` 图形验证码；
-- 验证码已填写后自动点击 `.btn_login`；
+- 通过本机 OCR 自动识别验证码、自动刷新并有限重试；
+- 自动点击 `.btn_login`；
 - 登录成功后从 `HY8_STATE` 断点恢复。
+
+直接在 Tampermonkey 中运行时，先启动本机 OCR 桥：
+
+```powershell
+npm install
+.\bin\huayi-captcha.ps1
+```
+
+默认地址为 `http://127.0.0.1:17891/solve`。也可从 Tampermonkey 菜单“设置本机验证码识别服务”修改。图片只在浏览器与本机回环地址之间传输。
 
 ## Hermes：Win11
 
@@ -76,10 +90,10 @@ $env:HUAYI_PASSWORD = 'PASSWORD'
 .\bin\huayi-hermes.ps1 `
   --browser 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' `
   --year 2025 --public-target 5 --other-target 20 `
-  --captcha-timeout-ms 600000
+  --captcha-auto true --captcha-max-attempts 6
 ```
 
-遇到图形验证码时，前台 Edge 会聚焦验证码输入框；填完即自动提交。也可为一次运行提供 `HUAYI_CAPTCHA_CODE`。账号、密码和验证码均不会写入仓库或运行日志。
+Hermes 会自动启动本机 OCR 服务，识别 5 位数字验证码、提交并在页面校验失败时刷新重试。也可通过 `HUAYI_CAPTCHA_PORT`、`HUAYI_CAPTCHA_LENGTH` 和 `HUAYI_CAPTCHA_MAX_ATTEMPTS` 调整。账号、密码和验证码均不会写入仓库或运行日志。
 
 ## Hermes：WSL
 
@@ -134,6 +148,10 @@ npm ci
 npm run build
 npm test
 npm run test:live
+npm run test:ocr
+$env:HUAYI_USERNAME = 'USERNAME'
+$env:HUAYI_PASSWORD = 'PASSWORD'
+npm run test:login
 ```
 
 测试包括：
@@ -142,7 +160,9 @@ npm run test:live
 - 最新学习记录、目录、课件、考试与结果页 DOM；
 - 异步渲染恢复；
 - Win11/WSL 浏览器路径与参数；
-- 最新登录表单和验证码等待；
+- 最新微信/短信/密码登录模式切换与表单字段；
+- 12 个华医真实验证码夹具的本机 OCR 回归；
+- 独立临时浏览器资料目录中的真实全自动登录（通过环境变量启用）；
 - Puppeteer 真实浏览器烟雾测试；
 - 华医网在线登录页 HTTP/DOM 布局测试（`npm run test:live`，不提交表单）；
 - 全源码语法、版本一致性、密钥泄露和回归约束。

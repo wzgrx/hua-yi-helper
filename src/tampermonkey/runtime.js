@@ -3,12 +3,15 @@
 
   var Core = window.HuayiCore;
   if (!Core) throw new Error('HuayiCore 未加载');
-  var VERSION = '8.0.0';
+  var VERSION = '8.1.0';
   var STATE_KEY = 'HY8_STATE';
   var ANSWER_KEY = 'HY8_ANSWERS';
   var EXAM_KEY = 'HY8_EXAMS';
+  var CLASSROOM_KEY = 'HY8_CLASSROOM';
   var POLICY_KEY = 'HY8_POLICY';
   var LOGIN_KEY = 'HY8_LOGIN';
+  var CAPTCHA_CONFIG_KEY = 'HY8_CAPTCHA_CONFIG';
+  var pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
   function read(key, fallback) {
     try { var value = GM_getValue(key); return value === undefined || value === null ? fallback : value; }
@@ -56,6 +59,20 @@
       remove(LOGIN_KEY);
       setState({ message: '本机登录信息已清除' });
     });
+    GM_registerMenuCommand('设置本机验证码识别服务', function () {
+      var current = read(CAPTCHA_CONFIG_KEY, {});
+      var provider = prompt(
+        '本机验证码识别服务地址',
+        current.providerUrl || 'http://127.0.0.1:17891/solve'
+      );
+      if (provider === null) return;
+      write(CAPTCHA_CONFIG_KEY, {
+        providerUrl: clean(provider),
+        expectedLength: Number(current.expectedLength || 5),
+        maxAttempts: Number(current.maxAttempts || 6)
+      });
+      setState({ message: '本机验证码识别服务已更新' });
+    });
   }
   function absolute(url) {
     try { return new URL(url, location.href).href; } catch (_) { return url || ''; }
@@ -71,14 +88,19 @@
   }
   function visible(element) {
     if (!element) return false;
-    var style = getComputedStyle(element);
-    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    var current = element;
+    while (current && current.nodeType === 1) {
+      var style = getComputedStyle(current);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+      current = current.parentElement;
+    }
+    return true;
   }
   function enabled(element) {
     if (!element || !visible(element)) return false;
     return !element.disabled && !element.hasAttribute('disabled') &&
       clean(element.getAttribute('aria-disabled')).toLowerCase() !== 'true' &&
-      !/(^|\s)(disabled|is-disabled)(\s|$)/i.test(String(element.className || ''));
+      !/(^|\s)(disabled|is-disabled|inputstyle2_2)(\s|$)/i.test(String(element.className || ''));
   }
   function pageText() {
     return document.body ? document.body.innerText || document.body.textContent || '' : '';
@@ -209,7 +231,8 @@
     if (/exam_result(?:_hd)?\.aspx$/.test(path)) return 'result';
     if (/exam_code\.aspx$/.test(path)) return 'captcha';
     if (/exam\.aspx$/.test(path)) return 'exam';
-    if (/course_ware_(?:polyv|cc)\.aspx$/.test(path)) return 'player';
+    if (/\/course_ware\/course_ware(?:_(?:polyv|cc))?\.aspx$/.test(path)) return 'player';
+    if (/\/course_ware\/course_list\.aspx$/.test(path)) return 'course';
     if (/\/pages\/course\.aspx$/.test(path) && queryParam('cid')) return 'course';
     if (/\/cme\/(?:index|fme)/.test(path) || /\/pages\/(?:cme|fme)\.aspx$/.test(path)) return 'catalog';
     return 'other';
@@ -231,11 +254,11 @@
     shadow = hostNode.attachShadow({ mode: 'open' });
     shadow.innerHTML = '<style>' +
       ':host{all:initial}.box{width:280px;max-width:calc(100vw - 28px);font:13px/1.45 "Microsoft YaHei",sans-serif;color:#e8eef7;background:#172033;border:1px solid #34445f;border-radius:12px;box-shadow:0 12px 36px #0007;overflow:hidden}' +
-      '.head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#1f5f99;font-weight:700}.head button{width:28px}.body{padding:10px}.row{display:flex;gap:7px;align-items:center;margin:6px 0}.grow{flex:1}.badge{padding:2px 7px;border-radius:999px;background:#263650;color:#9fd1ff}.meter{height:7px;border-radius:9px;background:#263650;overflow:hidden}.bar{height:100%;background:#29b67a}.msg{min-height:36px;color:#dbe7f7}.actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}button{box-sizing:border-box;border:0;border-radius:7px;padding:8px;background:#2b6da8;color:white;font:inherit;cursor:pointer}button.pause{background:#a64040}button.secondary{background:#40516c}.log{display:none;max-height:180px;overflow:auto;margin-top:8px;padding:7px;background:#0e1522;color:#8ee79f;border-radius:7px;font:11px/1.45 Consolas,monospace;white-space:pre-wrap}.collapsed .body{display:none}' +
+      '.head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#1f5f99;font-weight:700}.head button{width:28px}.body{padding:10px}.row{display:flex;gap:7px;align-items:center;margin:6px 0}.grow{flex:1}.badge{padding:2px 7px;border-radius:999px;background:#263650;color:#9fd1ff}.meter{height:7px;border-radius:9px;background:#263650;overflow:hidden}.bar{height:100%;background:#29b67a}.msg{min-height:36px;color:#dbe7f7}.plan{max-height:126px;overflow:auto;margin-top:7px;padding:7px;background:#101a2a;border-radius:7px;color:#c8d8ee;font-size:11px;white-space:pre-wrap}.plan:empty{display:none}.actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}button{box-sizing:border-box;border:0;border-radius:7px;padding:8px;background:#2b6da8;color:white;font:inherit;cursor:pointer}button.pause{background:#a64040}button.secondary{background:#40516c}.log{display:none;max-height:180px;overflow:auto;margin-top:8px;padding:7px;background:#0e1522;color:#8ee79f;border-radius:7px;font:11px/1.45 Consolas,monospace;white-space:pre-wrap}.collapsed .body{display:none}' +
       '</style><section class="box"><header class="head"><span id="title">华医助手 v' + VERSION + '</span><button id="fold" type="button">−</button></header>' +
       '<div class="body"><div class="row"><span id="status" class="badge">就绪</span><span class="grow"></span><strong id="credit">0/' + TARGET + '分</strong></div>' +
       '<div class="row"><span id="publicCredit">公需 0/' + policy.publicTarget + '</span><span class="grow"></span><span id="otherCredit">其他 0/' + policy.otherTarget + '</span></div>' +
-      '<div class="meter"><div id="bar" class="bar" style="width:0%"></div></div><div id="message" class="msg"></div>' +
+      '<div class="meter"><div id="bar" class="bar" style="width:0%"></div></div><div id="message" class="msg"></div><div id="plan" class="plan"></div>' +
       '<div class="actions"><button id="start" type="button">开始/继续</button><button id="pause" class="pause" type="button">暂停</button><button id="records" class="secondary" type="button">学习记录</button><button id="showlog" class="secondary" type="button">日志</button></div>' +
       '<div id="log" class="log"></div></div></section>';
     document.body.appendChild(hostNode);
@@ -274,6 +297,11 @@
     shadow.getElementById('otherCredit').textContent = '其他 ' + Number(state.otherEarned || 0) + '/' + policy.otherTarget +
       '（计划 ' + Number(state.otherProjected || 0) + '）';
     shadow.getElementById('message').textContent = state.message || '';
+    var taskLabels = { apply: '申请', resume: '继续', enroll: '选课' };
+    shadow.getElementById('plan').textContent = (state.planTasks || []).slice(0, 12).map(function (task, index) {
+      return (index + 1) + '. [' + (taskLabels[task.type] || task.type) + '] ' + task.name +
+        '｜' + task.credit + '分｜' + task.source;
+    }).join('\n');
     shadow.getElementById('log').textContent = (state.logs || []).join('\n');
   }
 
@@ -284,6 +312,8 @@
       element.getAttribute('onclick') || '';
     if (/^(?:\/|https?:)/i.test(raw)) return absolute(raw);
     var match = raw.match(/(?:window\.open|location(?:\.href)?\s*=|openCourse|toCourse)\s*\(?\s*['"]([^'"]+)/i);
+    if (match) return absolute(match[1]);
+    match = raw.match(/((?:\/?course_ware\/)?course_ware[^'"\s]*\.aspx\?[^'"\s]*)/i);
     return match ? absolute(match[1]) : '';
   }
 
@@ -294,20 +324,36 @@
     }) || elements.find(function (element) { return extractActionUrl(element); }) || null;
   }
 
+  function selectStudyYear() {
+    var selects = Array.from(document.querySelectorAll('select'));
+    var yearSelect = selects.find(function (select) {
+      return Array.from(select.options || []).some(function (option) {
+        return clean(option.value || option.textContent) === String(policy.year);
+      });
+    });
+    if (!yearSelect || clean(yearSelect.value) === String(policy.year)) return false;
+    yearSelect.value = String(policy.year);
+    yearSelect.dispatchEvent(new Event('input', { bubbles: true }));
+    yearSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+
   function scanStudy() {
     var rows = uniqueElements(Array.from(document.querySelectorAll(
       'table tr,.study-item,.study-list-item,[class*="study"][class*="item"],[class*="project"][class*="item"]'
     )));
     var result = { credit: 0, courses: [], records: [], localTasks: [], ready: false, summary: null };
+    var sawDataRow = false;
     rows.forEach(function (row) {
       var cells = Array.from(row.querySelectorAll('td'));
       var text = clean(row.innerText || row.textContent);
       if (!text || (!cells.length && !/\d+(?:\.\d+)?\s*学?\s*分/.test(text))) return;
       if (cells.length && cells.length < 3) return;
       if (!/\d+(?:\.\d+)?\s*学?\s*分/.test(text) && !/已申请|学习中|学习完毕|未学习|申请学分|继续学习/.test(text)) return;
-      result.ready = true;
+      sawDataRow = true;
       var year = Core.parseYear(text, policy.year);
       if (year !== Number(policy.year)) return;
+      result.ready = true;
       var link = row.querySelector('a[href*="course.aspx"],a[href*="cid="],a[href*="cwid="]');
       var actionElement = rowAction(row);
       var url = extractActionUrl(actionElement) || (link ? absolute(link.href || link.getAttribute('href')) : '');
@@ -333,6 +379,9 @@
       result.records.push(record);
       if (actionElement) result.localTasks.push({ record: record, element: actionElement });
     });
+    if (!sawDataRow && document.querySelector('table') && /暂无|没有.*学习记录|无学习记录/.test(pageText())) {
+      result.ready = true;
+    }
     result.summary = Core.summarizeCredits(result.records, policy);
     result.credit = result.summary.totalEarned;
     result.courses = result.records;
@@ -362,6 +411,11 @@
 
   function handleStudy(retry) {
     retry = Number(retry || 0);
+    if (selectStudyYear()) {
+      setState({ phase: 'study', message: '正在切换到 ' + policy.year + ' 年学习记录' });
+      setTimeout(function () { if (route() === 'study') handleStudy(retry + 1); }, 700);
+      return;
+    }
     var info = scanStudy();
     if (!info.ready) {
       if (retry < 30) {
@@ -434,12 +488,13 @@
   function scanCoursewares() {
     var nodes = uniqueElements(Array.from(document.querySelectorAll(
       'a.cw-title-link[href*="cwid="],a[href*="course_ware.aspx?cwid="],' +
-      '.course[data-href*="cwid="],[class*="course-item"][data-href*="cwid="],[onclick*="cwid="]'
+      '.course[data-href*="cwid="],[class*="course-item"][data-href*="cwid="],[onclick*="cwid="],' +
+      '.lis-inside-content[onclick*="course_ware"],.lis-inside-content h2[onclick*="course_ware"],h2[onclick*="course_ware"]'
     )));
     return nodes.map(function (node) {
       var url = node.href || node.getAttribute('data-href') || extractActionUrl(node);
-      var box = node.closest('.course, tr, [class*="course-item"]') || node.parentElement;
-      var title = node.matches('a') ? node : node.querySelector('a.cw-title-link,[class*="title"]');
+      var box = node.closest('.course, tr, .lis-inside-content, [class*="course-item"]') || node.parentElement;
+      var title = node.matches('a,h2') ? node : node.querySelector('a.cw-title-link,h2,[class*="title"]');
       var text = clean(box ? box.innerText || box.textContent : node.textContent);
       var status = /待考试/.test(text) ? '待考试' : (/已完成/.test(text) ? '已完成' : (/学习中/.test(text) ? '学习中' : (/互动/.test(text) ? '互动' : '未学习')));
       var fullUrl = absolute(url);
@@ -550,11 +605,179 @@
     navigate('/pages/study_info_list.aspx');
   }
 
+  function playerMediaStatus() {
+    var video = document.querySelector('video');
+    var bridge = null;
+    try {
+      bridge = pageWindow.player && typeof pageWindow.player.j2s_getDuration === 'function' ? pageWindow.player : null;
+    } catch (_) {}
+    var current = 0;
+    var duration = 0;
+    if (video) {
+      current = Number(video.currentTime || 0);
+      duration = Number(video.duration || 0);
+    } else if (bridge) {
+      try {
+        current = Number(bridge.j2s_getCurrentTime() || 0);
+        duration = Number(bridge.j2s_getDuration() || 0);
+      } catch (_) {}
+    }
+    if (!isFinite(current)) current = 0;
+    if (!isFinite(duration)) duration = 0;
+    return {
+      found: Boolean(video || bridge),
+      video: video,
+      bridge: bridge,
+      paused: Boolean(video && video.paused),
+      ended: Boolean((video && video.ended) || (duration > 0 && current >= duration - 1)),
+      current: current,
+      duration: duration
+    };
+  }
+
+  function parseClassroomQuiz() {
+    var modal = document.querySelector('.pv-ask-modal-wrap');
+    if (!modal || !visible(modal) || /(^|\s)pv-hide(\s|$)/.test(classText(modal))) return null;
+    var questionNode = modal.querySelector('.pv-ask-right,[class*="question"],.question');
+    var question = clean(questionNode ? questionNode.textContent : '');
+    var options = Array.from(modal.querySelectorAll('.pv-ask-form input[type="radio"],input[type="radio"]')).map(function (input) {
+      var label = input.closest('label') || input.parentElement;
+      return {
+        input: input,
+        value: clean(input.value),
+        text: clean(label ? label.textContent : input.value).replace(/^[A-E][、.．)\s]*/, '')
+      };
+    });
+    var result = /(^|\s)pv-ask-modal-answer(\s|$)/.test(classText(modal)) ||
+      /回答正确|回答错误|答对|答错/.test(clean(modal.textContent));
+    var signal = clean(modal.textContent);
+    var correct = modal.querySelector('.pv-right-icon,[class*="correct"],[class*="right-icon"]') ? true :
+      (modal.querySelector('.pv-wrong-icon,[class*="wrong"],[class*="error-icon"]') ? false :
+        (/回答正确|答对/.test(signal) ? true : (/回答错误|答错/.test(signal) ? false : null)));
+    var submit = modal.querySelector('.pv-ask-submit,button[type="submit"],input[type="submit"]');
+    var close = modal.querySelector('.pv-ask-skip,.pv-ask-close,[class*="close"]') ||
+      Array.from(modal.querySelectorAll('button,input[type="button"],a')).find(function (element) {
+        return /继续观看|关闭|继续学习|知道了|确定/.test(actionText(element));
+      });
+    return {
+      modal: modal,
+      question: question,
+      key: normalize(question).slice(0, 100),
+      options: options,
+      result: result,
+      correct: correct,
+      submit: submit,
+      close: close
+    };
+  }
+
+  function chooseClassroomOption(quiz, memory) {
+    var learned = read(ANSWER_KEY, {});
+    var known = learned['classroom:' + quiz.key];
+    var tried = Array.isArray(memory.tried) ? memory.tried.slice() :
+      quiz.options.slice(0, Number(memory.attempt || 0)).map(function (option) { return option.text; });
+    if (known) {
+      var knownKey = normalize(known);
+      var exact = quiz.options.find(function (option) {
+        return normalize(option.text) === knownKey && tried.indexOf(option.text) < 0;
+      });
+      if (exact) return exact;
+    }
+    return quiz.options.find(function (option) { return tried.indexOf(option.text) < 0; }) || null;
+  }
+
+  function handleClassroomQuiz() {
+    var quiz = parseClassroomQuiz();
+    if (!quiz) return false;
+    if (window.__HY8_CLASSROOM_BUSY) return true;
+    var allMemory = read(CLASSROOM_KEY, {});
+    var memory = allMemory[quiz.key] || { attempt: 0, submitted: '', tried: [] };
+    if (quiz.result) {
+      var learned = read(ANSWER_KEY, {});
+      if (quiz.correct === true && quiz.key && memory.submitted) {
+        learned['classroom:' + quiz.key] = memory.submitted;
+        write(ANSWER_KEY, learned);
+        delete allMemory[quiz.key];
+        setState({ phase: 'player', message: '课堂问答正确，继续学习' });
+      } else {
+        delete learned['classroom:' + quiz.key];
+        write(ANSWER_KEY, learned);
+        if (!Array.isArray(memory.tried)) memory.tried = [];
+        if (memory.submitted && memory.tried.indexOf(memory.submitted) < 0) memory.tried.push(memory.submitted);
+        memory.attempt = memory.tried.length;
+        allMemory[quiz.key] = memory;
+        setState({ phase: 'player', message: '课堂问答准备下一答案组合' });
+      }
+      write(CLASSROOM_KEY, allMemory);
+      window.__HY8_CLASSROOM_BUSY = true;
+      setTimeout(function () {
+        if (quiz.close && enabled(quiz.close)) humanClick(quiz.close);
+        else quiz.modal.classList.add('pv-hide');
+        setTimeout(function () { window.__HY8_CLASSROOM_BUSY = false; }, 700);
+      }, 500);
+      return true;
+    }
+    if (!quiz.options.length || !quiz.submit) return true;
+    if ((memory.tried || []).length >= quiz.options.length || Number(memory.attempt || 0) >= quiz.options.length) {
+      setState({ running: false, paused: true, phase: 'player', message: '课堂问答所有选项均已尝试，请检查题目' });
+      return true;
+    }
+    var choice = chooseClassroomOption(quiz, memory);
+    if (!choice) return true;
+    memory.submitted = choice.text;
+    if (!Array.isArray(memory.tried)) memory.tried = [];
+    if (memory.tried.indexOf(choice.text) < 0) memory.tried.push(choice.text);
+    memory.attempt = Math.max(Number(memory.attempt || 0), memory.tried.length - 1);
+    allMemory[quiz.key] = memory;
+    write(CLASSROOM_KEY, allMemory);
+    window.__HY8_CLASSROOM_BUSY = true;
+    setState({ phase: 'player', message: '课堂问答：第 ' + (Number(memory.attempt || 0) + 1) + ' 个答案' });
+    humanClick(choice.input);
+    if (!choice.input.checked) {
+      choice.input.checked = true;
+      choice.input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    setTimeout(function () {
+      if (state.running && enabled(quiz.submit)) humanClick(quiz.submit);
+      setTimeout(function () { window.__HY8_CLASSROOM_BUSY = false; }, 700);
+    }, 700);
+    return true;
+  }
+
+  function findPlayerPrompt() {
+    var exactSelectors = [
+      '#div_preview1 #btnPay',
+      '#div_preview2 .rig_btn',
+      '#div_tip .rig_btn',
+      '.study_diaog .btn_sign',
+      '#div_processbar_tip .rig_btn',
+      '.pv-ask-skip',
+      '.signBtn',
+      '.btn_sign',
+      '.study_box button',
+      '.layer_tips .colse_btn',
+      'button[onclick="closeProcessbarTip()"]',
+      '.el-message-box__btns .el-button--primary',
+      '.el-dialog__footer .el-button--primary'
+    ];
+    var exact = exactSelectors.map(function (selector) {
+      return document.querySelector(selector);
+    }).find(enabled);
+    if (exact) return { element: exact, text: actionText(exact) || '继续' };
+    return findSemanticActions(/继续学习|继续播放|开始播放|签到|我知道了|确定|确认|关闭提示/, /购买|支付|退出|返回|取消/, {
+      maxText: 18,
+      selectors: 'button,input[type="button"],a[href],[role="button"],[onclick]'
+    })[0] || null;
+  }
+
   function handlePlayer() {
     if (!state.running) return;
     var cwid = queryParam('cwid');
     setState({ currentCwid: cwid || state.currentCwid, phase: 'player', message: '网站原生播放器正常学习中' });
     var count = 0;
+    var lastPrompt = null;
+    var lastPromptAt = 0;
+    var lastResumeAt = 0;
     if (window.__HY8_TIMER) clearInterval(window.__HY8_TIMER);
     window.__HY8_TIMER = setInterval(function () {
       if (!state.running || state.paused) { clearInterval(window.__HY8_TIMER); return; }
@@ -565,11 +788,47 @@
         setState({ running: false, paused: true, phase: 'blocked', message: '播放器检测到其他异常插件' });
         return;
       }
+      var quizActive = handleClassroomQuiz();
+      var media = playerMediaStatus();
+      if (!quizActive && media.video && !media.ended) {
+        try {
+          media.video.muted = true;
+          media.video.volume = 0;
+          if (media.video.paused) {
+            var playing = media.video.play();
+            if (playing && typeof playing.catch === 'function') playing.catch(function () {});
+          }
+        } catch (_) {}
+      }
+      if (!quizActive && media.bridge && !media.ended && Date.now() - lastResumeAt > 8000) {
+        try {
+          if (typeof media.bridge.j2s_resumeVideo === 'function') media.bridge.j2s_resumeVideo();
+          lastResumeAt = Date.now();
+        } catch (_) {}
+      }
+      var prompt = quizActive ? null : findPlayerPrompt();
+      if (prompt && (prompt.element !== lastPrompt || Date.now() - lastPromptAt > 4000)) {
+        lastPrompt = prompt.element;
+        lastPromptAt = Date.now();
+        log('[播放器] 处理提示：' + prompt.text);
+        humanClick(prompt.element);
+      }
       var exam = document.getElementById('jrks');
       if (cwid && enabled(exam)) {
         clearInterval(window.__HY8_TIMER);
-        navigate('/pages/exam.aspx?cwid=' + encodeURIComponent(cwid));
+        var before = location.href;
+        humanClick(exam);
+        setTimeout(function () {
+          if (location.href === before && route() === 'player') {
+            navigate('/pages/exam.aspx?cwid=' + encodeURIComponent(cwid));
+          }
+        }, 1200);
         return;
+      }
+      if (media.found) {
+        var progress = media.duration > 0 ? Math.min(100, Math.round(media.current / media.duration * 100)) : 0;
+        var mediaMessage = media.ended ? '课件播放结束，等待考试入口' : '原生播放中 ' + progress + '%';
+        if (state.message !== mediaMessage) setState({ phase: 'player', message: mediaMessage });
       }
       if (count >= 43200) { clearInterval(window.__HY8_TIMER); setState({ running: false, message: '播放器观察超时' }); }
     }, 1000);
@@ -733,6 +992,13 @@
     if (changed) write(ANSWER_KEY, learned);
     return changed;
   }
+  function findResultNextAction() {
+    return Array.from(document.querySelectorAll(
+      '.state_cour_ul input.state_lis_han,input[value="立即学习"],button,a'
+    )).find(function (element) {
+      return enabled(element) && /立即学习|下一课|继续学习/.test(actionText(element));
+    }) || null;
+  }
   function handleResult(retry) {
     retry = Number(retry || 0);
     if (!state.running) return;
@@ -758,8 +1024,13 @@
     }
     if (/考试通过|已通过|考试合格|完成项目学习可以申请学分/.test(text)) {
       delete exams[cwid]; write(EXAM_KEY, exams);
-      setState({ phase: 'course', message: '考试通过，返回项目继续' });
-      setTimeout(function () { navigate(state.currentCourseUrl || '/pages/study_info_list.aspx'); }, 1800);
+      var nextAction = findResultNextAction();
+      setState({ phase: 'course', message: nextAction ? '考试通过，进入下一课件' : '考试通过，返回项目继续' });
+      setTimeout(function () {
+        if (!state.running) return;
+        if (nextAction) humanClick(nextAction);
+        else navigate(state.currentCourseUrl || '/pages/study_info_list.aspx');
+      }, 1800);
       return;
     }
     if (retry < 20) {
@@ -830,34 +1101,143 @@
   }
 
   function loginElements() {
+    function firstVisible(selector) {
+      var nodes = Array.from(document.querySelectorAll(selector));
+      return nodes.find(visible) || null;
+    }
+    function firstAny(selector) {
+      return document.querySelector(selector);
+    }
     return {
-      username: document.querySelector('#txt_user_name,input[name="txt_user_name"],input[placeholder*="用户名"],input[placeholder*="身份证"]'),
-      password: document.querySelector('#txt_user_pwd,input[placeholder*="密码"]'),
-      passwordReal: document.querySelector('#txt_user_pwd_real,input[name="txt_user_pwd"][type="hidden"]'),
-      captcha: document.querySelector('#txt_img_code,input[name="txt_img_code"],input[placeholder*="图形验证码"]'),
-      captchaImage: document.querySelector('#yzm_img,img[src*="CheckCode"],img[src*="captcha" i]'),
-      agreement: document.querySelector('#agree1,input[type="checkbox"][name*="agree" i]'),
-      submit: document.querySelector('.btn_login,#btn_login,input[type="submit"],button[type="submit"]')
+      more: firstVisible('#show_type_more'),
+      passwordMode: firstVisible('#type_pwd'),
+      username: firstVisible('#txt_user_name,input[name="txt_user_name"],input[placeholder*="用户名"],input[placeholder*="身份证"]'),
+      password: firstVisible('#txt_user_pwd,input[placeholder*="密码"]'),
+      passwordReal: firstAny('#txt_user_pwd_real,input[name="txt_user_pwd"][type="hidden"]'),
+      captcha: firstVisible('#txt_img_code,input[name="txt_img_code"],input[placeholder*="图形验证码"]'),
+      captchaImage: firstVisible('#yzm_img,img[src*="CheckCode"],img[src*="captcha" i]'),
+      agreement: firstVisible('#agree1,input[type="checkbox"][name*="agree" i]'),
+      submit: firstVisible('.btn_login,#btn_login,input[type="submit"],button[type="submit"]')
     };
+  }
+
+  function captchaSettings() {
+    var stored = read(CAPTCHA_CONFIG_KEY, {});
+    var bridged = '';
+    try { bridged = clean(pageWindow.__HY8_CAPTCHA_PROVIDER_URL); } catch (_) {}
+    return {
+      providerUrl: bridged || clean(stored.providerUrl) || 'http://127.0.0.1:17891/solve',
+      expectedLength: Math.max(1, Number(stored.expectedLength || 5)),
+      maxAttempts: Math.max(1, Number(stored.maxAttempts || 6))
+    };
+  }
+
+  function captchaImageBlob(image) {
+    return new Promise(function (resolve, reject) {
+      try {
+        if (!image || !image.complete || !image.naturalWidth || !image.naturalHeight) {
+          reject(new Error('验证码图片尚在加载'));
+          return;
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        canvas.getContext('2d').drawImage(image, 0, 0);
+        canvas.toBlob(function (blob) {
+          if (blob) resolve(blob);
+          else reject(new Error('验证码图片转换结果为空'));
+        }, 'image/png');
+      } catch (error) { reject(error); }
+    });
+  }
+
+  function requestCaptchaSolution(providerUrl, imageBlob) {
+    if (typeof GM_xmlhttpRequest === 'function') {
+      return new Promise(function (resolve, reject) {
+        GM_xmlhttpRequest({
+          method: 'POST',
+          url: providerUrl,
+          data: imageBlob,
+          headers: { 'Content-Type': 'image/png' },
+          responseType: 'json',
+          timeout: 60000,
+          onload: function (response) {
+            var payload = response.response;
+            if (!payload && response.responseText) {
+              try { payload = JSON.parse(response.responseText); } catch (_) {}
+            }
+            if (response.status >= 200 && response.status < 300 && payload && payload.ok) resolve(payload);
+            else reject(new Error(payload && payload.error || '本机验证码服务返回异常'));
+          },
+          onerror: function () { reject(new Error('本机验证码服务连接失败')); },
+          ontimeout: function () { reject(new Error('本机验证码服务响应超时')); }
+        });
+      });
+    }
+    return fetch(providerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png' },
+      body: imageBlob
+    }).then(function (response) {
+      return response.json().then(function (payload) {
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '本机验证码服务返回异常');
+        return payload;
+      });
+    });
+  }
+
+  function resetLoginForRetry(elements, delay) {
+    var dialog = document.querySelector(
+      '.layui-layer-btn0,.layui-layer-close,.ui-dialog-button button,.el-message-box__btns button'
+    );
+    if (dialog && enabled(dialog)) humanClick(dialog);
+    if (elements.captcha) setInputValue(elements.captcha, '');
+    if (elements.captchaImage) humanClick(elements.captchaImage);
+    window.__HY8_CAPTCHA_BUSY = false;
+    setTimeout(function () { if (route() === 'login' && state.running) handleLogin(); }, Number(delay || 900));
+  }
+
+  function solveLoginCaptcha(elements) {
+    if (window.__HY8_CAPTCHA_BUSY) return;
+    var settings = captchaSettings();
+    var attempts = Number(sessionStorage.getItem('HY8_CAPTCHA_ATTEMPTS') || 0);
+    if (attempts >= settings.maxAttempts) {
+      sessionStorage.setItem('HY8_CAPTCHA_ATTEMPTS', '0');
+      setState({ phase: 'login', message: '验证码已完成一轮识别，30 秒后自动开始新一轮' });
+      setTimeout(function () {
+        if (route() === 'login' && state.running) resetLoginForRetry(loginElements(), 500);
+      }, 30000);
+      return;
+    }
+    window.__HY8_CAPTCHA_BUSY = true;
+    setState({
+      phase: 'login',
+      message: '正在本机识别图形验证码（第 ' + (attempts + 1) + '/' + settings.maxAttempts + ' 次）'
+    });
+    captchaImageBlob(elements.captchaImage)
+      .then(function (blob) { return requestCaptchaSolution(settings.providerUrl, blob); })
+      .then(function (result) {
+        var code = clean(result.code).replace(/\D/g, '');
+        if (code.length !== settings.expectedLength) throw new Error('验证码识别位数不匹配');
+        sessionStorage.setItem('HY8_CAPTCHA_ATTEMPTS', String(attempts + 1));
+        setInputValue(elements.captcha, code);
+        window.__HY8_CAPTCHA_BUSY = false;
+        submitLoginWhenReady(loginElements());
+      })
+      .catch(function (error) {
+        window.__HY8_CAPTCHA_BUSY = false;
+        setState({ phase: 'login', message: '本机验证码识别重试：' + error.message });
+        setTimeout(function () {
+          if (route() === 'login' && state.running) solveLoginCaptcha(loginElements());
+        }, 5000);
+      });
   }
 
   function submitLoginWhenReady(elements) {
     if (!state.running || route() !== 'login') return;
     var codeRequired = elements.captcha && visible(elements.captcha) && elements.captchaImage && visible(elements.captchaImage);
     if (codeRequired && !clean(elements.captcha.value)) {
-      setState({ phase: 'login', message: '账号密码已填写，等待输入本次图形验证码；输入后自动登录' });
-      if (window.__HY8_LOGIN_TIMER) clearInterval(window.__HY8_LOGIN_TIMER);
-      window.__HY8_LOGIN_TIMER = setInterval(function () {
-        if (route() !== 'login' || !state.running) {
-          clearInterval(window.__HY8_LOGIN_TIMER);
-          return;
-        }
-        var current = loginElements();
-        if (current.captcha && clean(current.captcha.value)) {
-          clearInterval(window.__HY8_LOGIN_TIMER);
-          submitLoginWhenReady(current);
-        }
-      }, 500);
+      solveLoginCaptcha(elements);
       return;
     }
     if (!elements.submit || !enabled(elements.submit)) {
@@ -865,8 +1245,22 @@
       setTimeout(function () { submitLoginWhenReady(loginElements()); }, 500);
       return;
     }
+    if (window.__HY8_LOGIN_SUBMITTING) return;
+    window.__HY8_LOGIN_SUBMITTING = true;
     setState({ phase: 'login', message: '正在登录，成功后自动恢复年度任务' });
-    setTimeout(function () { if (route() === 'login' && state.running) humanClick(elements.submit); }, 500);
+    setTimeout(function () {
+      if (route() !== 'login' || !state.running) return;
+      humanClick(elements.submit);
+      setTimeout(function () {
+        window.__HY8_LOGIN_SUBMITTING = false;
+        if (route() === 'login' && state.running) {
+          setState({ phase: 'login', message: '页面校验未通过，正在刷新验证码重试' });
+          resetLoginForRetry(loginElements(), 900);
+        } else {
+          try { sessionStorage.removeItem('HY8_CAPTCHA_ATTEMPTS'); } catch (_) {}
+        }
+      }, 2500);
+    }, 500);
   }
 
   function handleLogin() {
@@ -877,7 +1271,15 @@
       return;
     }
     if (!elements.username || !elements.password) {
-      setState({ phase: 'login', message: '等待登录表单加载' });
+      if (elements.more && enabled(elements.more)) {
+        setState({ phase: 'login', message: '正在切换到账号登录' });
+        humanClick(elements.more);
+      } else if (elements.passwordMode && enabled(elements.passwordMode)) {
+        setState({ phase: 'login', message: '正在切换到密码登录' });
+        humanClick(elements.passwordMode);
+      } else {
+        setState({ phase: 'login', message: '等待登录表单加载' });
+      }
       setTimeout(function () { if (route() === 'login') handleLogin(); }, 500);
       return;
     }
@@ -1027,7 +1429,7 @@
       candidates.push({
         source: '全员专项',
         pattern: /全员|专项/,
-        url: findCatalogLink(/全员|专项/, '/cme/fme')
+        url: findCatalogLink(/全员|专项/, '/pages/fme.aspx')
       });
     }
     return candidates.find(function (candidate) { return visitedSources.indexOf(candidate.source) < 0; }) || null;
@@ -1148,9 +1550,14 @@
     window.__HY8_TEST_API__ = {
       route: route, scanStudy: scanStudy, scanCoursewares: scanCoursewares,
       scanCatalog: scanCatalog, scanCourseDetail: scanCourseDetail, loginElements: loginElements,
+      selectStudyYear: selectStudyYear,
       parseExam: parseExam, parseResultAnswers: parseResultAnswers, saveLearnedAnswers: saveLearnedAnswers,
+      findResultNextAction: findResultNextAction,
       verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, answerCombinationCount: answerCombinationCount,
-      enabled: enabled, normalize: normalize, findCaseAction: findCaseAction, caseVideoStatus: caseVideoStatus
+      enabled: enabled, normalize: normalize, findCaseAction: findCaseAction, caseVideoStatus: caseVideoStatus,
+      playerMediaStatus: playerMediaStatus, findPlayerPrompt: findPlayerPrompt,
+      parseClassroomQuiz: parseClassroomQuiz, chooseClassroomOption: chooseClassroomOption
+      , captchaSettings: captchaSettings, requestCaptchaSolution: requestCaptchaSolution
     };
     window.__HY7_TEST_API__ = window.__HY8_TEST_API__;
     init();

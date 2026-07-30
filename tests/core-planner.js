@@ -47,4 +47,21 @@ const fastest = Core.chooseOptimalSubset([
 ], 5);
 assert.deepEqual(fastest.selected.map(item => item.id), ['fast-a', 'fast-b']);
 
+const historical2025 = Core.buildAnnualPlan([
+  { id: 'public-2025', name: '2025公需课', year: 2025, credit: 5, category: 'public', status: 'applied' },
+  { id: 'special-a', name: '全员专项A', year: 2025, credit: 3, category: 'other', source: '全员专项', status: 'applied' },
+  { id: 'special-b', name: '全员专项B', year: 2025, credit: 3, category: 'other', source: '全员专项', status: 'applied' },
+  { id: 'special-c', name: '全员专项C', year: 2025, credit: 3, category: 'other', source: '全员专项', status: 'applied' },
+  { id: 'special-d', name: '全员专项D', year: 2025, credit: 3, category: 'other', source: '全员专项', status: 'applied' },
+  { id: 'special-e', name: '全员专项E', year: 2025, credit: 2, category: 'other', source: '全员专项', status: 'applied' },
+  { id: 'special-f', name: '全员专项F', year: 2025, credit: 3, category: 'other', source: '全员专项', status: 'applied' },
+  { id: 'continuing-ready', name: '继续教育已完成课程', year: 2025, credit: 3, category: 'other', source: '继续教育', status: 'completed', url: '/apply-2025' }
+], [], { year: 2025, publicTarget: 5, otherTarget: 20 });
+assert.equal(historical2025.summary.publicEarned, 5);
+assert.equal(historical2025.summary.otherEarned, 17);
+assert.equal(historical2025.projectedOther, 20);
+assert.deepEqual(historical2025.shortages, { public: 0, other: 0 });
+assert.deepEqual(historical2025.tasks.map(task => task.type), ['apply']);
+assert.equal(historical2025.tasks[0].record.id, 'continuing-ready');
+
 console.log('共享年度学分规划核心测试通过');

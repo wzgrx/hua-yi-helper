@@ -291,7 +291,7 @@
   }
 
   return {
-    VERSION: '8.0.0',
+    VERSION: '8.1.0',
     DEFAULT_POLICY: DEFAULT_POLICY,
     clean: clean,
     normalize: normalize,

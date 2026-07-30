@@ -1,12 +1,15 @@
 {
   "name": "hua-yi-helper",
-  "version": "8.0.0",
-  "description": "华医网学习助手 v8.0.0 - Tampermonkey、Hermes、WSL 与 Win11 跨端年度 5+20 智能规划",
+  "version": "8.1.0",
+  "description": "华医网学习助手 v8.1.0 - Tampermonkey、Hermes、WSL 与 Win11 跨端年度 5+20 智能规划",
   "scripts": {
-    "test": "npm run build && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
+    "test": "npm run build && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/captcha.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
     "build": "node scripts/build-userscript.js",
     "hermes": "node src/hermes/cli.js",
-    "test:live": "node tests/live-login.js"
+    "captcha": "node src/hermes/captcha-cli.js",
+    "test:live": "node tests/live-login.js",
+    "test:ocr": "node tests/live-captcha-ocr.js",
+    "test:login": "node tests/live-auto-login.js"
   },
   "keywords": [
     "huayi",
@@ -21,9 +24,11 @@
     "jsdom": "^26.1.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.9.0"
   },
   "dependencies": {
-    "puppeteer-core": "^24.32.1"
+    "puppeteer-core": "^24.32.1",
+    "sharp": "^0.35.3",
+    "tesseract.js": "^7.0.0"
   }
 }

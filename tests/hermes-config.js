@@ -39,12 +39,20 @@ const publicView = publicConfig({
   baseUrl: 'https://example.test',
   headless: false,
   maxRuntimeMs: 10,
+  captchaAuto: true,
+  captchaMaxAttempts: 6,
+  captchaExpectedLength: 5,
+  captchaProviderUrl: '',
   policy: { year: 2025, publicTarget: 5, otherTarget: 20 },
   username: 'secret-user',
   password: 'secret-pass'
 });
 assert.equal(publicView.username, undefined);
 assert.equal(publicView.password, undefined);
+assert.equal(publicView.captchaAuto, true);
+assert.equal(publicView.captchaMaxAttempts, 6);
+assert.equal(publicView.captchaExpectedLength, 5);
+assert.equal(publicView.captchaProviderConfigured, false);
 assert.equal(publicView.usernameConfigured, true);
 assert.equal(publicView.passwordConfigured, true);
 
