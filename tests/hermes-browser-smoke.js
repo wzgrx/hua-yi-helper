@@ -1,0 +1,39 @@
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const puppeteer = require('puppeteer-core');
+const { resolveBrowser } = require('../src/hermes/config');
+
+(async () => {
+  const executablePath = resolveBrowser(process.env.HUAYI_BROWSER);
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'huayi-hermes-smoke-'));
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: true,
+      userDataDir: profile,
+      args: ['--no-first-run', '--disable-default-apps']
+    });
+    const page = await browser.newPage();
+    await page.setContent('<main id="fixture">Win11 + Edge + Hermes</main>');
+    const text = await page.$eval('#fixture', element => element.textContent);
+    assert.equal(text, 'Win11 + Edge + Hermes');
+    const version = await browser.version();
+    assert(/Chrome|Edge|HeadlessChrome/i.test(version));
+    console.log(`Hermes 真实浏览器烟雾测试通过：${version}`);
+  } finally {
+    if (browser) await browser.close();
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+})().catch(error => {
+  if (process.env.HUAYI_BROWSER || process.env.HUAYI_REQUIRE_BROWSER_SMOKE === '1') {
+    console.error(error);
+    process.exitCode = 1;
+  } else {
+    console.log(`Hermes 浏览器烟雾测试已尝试：当前 Edge 实例未开放独立自动化进程（${error.message.split('\n')[0]}）`);
+  }
+});

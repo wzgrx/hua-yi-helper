@@ -15,7 +15,7 @@ function boot(url, seed = {}) {
     virtualConsole
   });
   const values = new Map(Object.entries(Object.assign({
-    HY7_STATE: { running: true, paused: false, phase: 'idle', logs: [] }
+    HY8_STATE: { running: true, paused: false, phase: 'idle', logs: [] }
   }, seed)));
   dom.window.GM_getValue = key => values.get(key);
   dom.window.GM_setValue = (key, value) => values.set(key, value);
@@ -34,7 +34,7 @@ function boot(url, seed = {}) {
         <tr><td>公需课</td><td>2026</td><td>5分</td><td>已申请</td><td></td><td></td></tr>
       </tbody></table>`;
     await wait(850);
-    const state = fixture.values.get('HY7_STATE');
+    const state = fixture.values.get('HY8_STATE');
     assert.equal(state.credit, 25);
     assert.equal(state.phase, 'done');
     assert.equal(state.running, false);
@@ -50,7 +50,7 @@ function boot(url, seed = {}) {
         <span class="course-title">延迟课件</span><button>待考试</button>
       </div>`;
     await wait(850);
-    const state = fixture.values.get('HY7_STATE');
+    const state = fixture.values.get('HY8_STATE');
     assert.equal(state.currentCwid, 'delayed-one');
     assert.equal(state.phase, 'exam');
     fixture.dom.window.close();
@@ -66,7 +66,7 @@ function boot(url, seed = {}) {
         <tr><td><label><input type="radio" name="q1">B、以上都是</label></td></tr>
       </table><button id="btn_submit" type="button">提交</button>`;
     await wait(850);
-    const state = fixture.values.get('HY7_STATE');
+    const state = fixture.values.get('HY8_STATE');
     assert.equal(state.phase, 'exam');
     assert.match(state.message, /正在选择|准备提交/);
     fixture.dom.window.close();
@@ -75,7 +75,7 @@ function boot(url, seed = {}) {
 
   {
     const fixture = boot('https://cme28.91huayi.com/pages/exam_result.aspx?cwid=result-exam', {
-      HY7_EXAMS: {
+      HY8_EXAMS: {
         'result-exam': {
           attempt: 0,
           submitted: { 第一题: '正确答案', 第二题: '错误答案' }
@@ -87,8 +87,8 @@ function boot(url, seed = {}) {
       <section><div class="state_cour_lis"><img src="/images/bar_img.png"><p title="1、第一题">第一题</p></div><div>【您的答案：B、正确答案】</div></section>
       <section><div class="state_cour_lis"><img src="/images/wrong.png"><p title="2、第二题">第二题</p></div><div>【您的答案：A、错误答案】</div></section>`;
     await wait(500);
-    const exams = fixture.values.get('HY7_EXAMS');
-    const learned = fixture.values.get('HY7_ANSWERS');
+    const exams = fixture.values.get('HY8_EXAMS');
+    const learned = fixture.values.get('HY8_ANSWERS');
     assert.equal(exams['result-exam'].attempt, 1);
     assert.equal(learned.第一题, '正确答案');
     assert.equal(learned.第二题, undefined);
@@ -96,7 +96,7 @@ function boot(url, seed = {}) {
     console.log('✅ 未通过结果页学习正确题并推进下一轮');
   }
 
-  console.log('v7 异步加载集成测试全部通过');
+  console.log('v8 异步加载集成测试全部通过');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

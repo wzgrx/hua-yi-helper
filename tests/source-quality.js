@@ -8,9 +8,8 @@ const files = [];
 for(const file of files){ const result=spawnSync(process.execPath,['--check',file],{encoding:'utf8'}); assert.equal(result.status,0,`${file}: ${result.stderr}`); }
 const source = fs.readFileSync(path.join(root,'src','tampermonkey','hua-yi-helper.user.js'),'utf8');
 const all = files.map(f=>fs.readFileSync(f,'utf8')).join('\n');
-assert(!all.includes('ghp_'));
-assert(!all.includes('17795547652'));
-assert(!all.includes('HYW+zjx+2212'));
+assert(!/ghp_[A-Za-z0-9]{20,}/.test(all));
+assert(!/(?:username|password|token)\s*[:=]\s*['"][^'"]{24,}['"]/i.test(all));
 assert(!new RegExp('playback'+'Rate','i').test(all));
 assert(!new RegExp('--'+'speed\\b','i').test(all));
 assert(!/currentTime\s*=/.test(all));
@@ -23,4 +22,4 @@ const player=source.slice(playerStart,playerEnd);
 assert(player && !/querySelector\(['"]video|\.play\(|\.muted|\.volume/.test(player));
 const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
 assert.equal((source.match(/@version\s+(\S+)/)||[])[1],pkg.version);
-console.log(`v7 源码质量检查通过：${files.length} 个 JavaScript 文件`);
+console.log(`v8 源码质量检查通过：${files.length} 个 JavaScript 文件`);

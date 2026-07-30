@@ -4,10 +4,11 @@ const assert = require('assert');
 const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'tampermonkey', 'hua-yi-helper.user.js'), 'utf8');
 const checks = [
   ['UserScript 元数据', /==UserScript==/.test(source)],
-  ['v7 版本', /@version\s+7\.\d+\.\d+/.test(source)],
+  ['v8 版本', /@version\s+8\.\d+\.\d+/.test(source)],
   ['顶层页面隔离', /@noframes/.test(source)],
   ['无外部依赖', !/@require\s/.test(source)],
-  ['单一 v7 状态', /HY7_STATE/.test(source)],
+  ['单一 v8 状态与 v7 迁移', /HY8_STATE/.test(source) && /migrateLegacy/.test(source)],
+  ['年度 5+20 规划', /buildAnnualPlan/.test(source) && /publicTarget:\s*5/.test(source) && /otherTarget:\s*20/.test(source)],
   ['Shadow DOM UI', /attachShadow/.test(source)],
   ['面板按钮不提交表单', /type=\\?"button\\?"/.test(source) && /event\.preventDefault/.test(source)],
   ['学习记录路由', /handleStudy/.test(source)],
@@ -30,4 +31,4 @@ const checks = [
 let failed = 0;
 for (const [name, ok] of checks) { console.log(`${ok ? '✅' : '❌'} ${name}`); if (!ok) failed++; }
 assert.equal(failed, 0, `${failed} 项检查失败`);
-console.log(`v7 模块检查通过：${checks.length} 项`);
+console.log(`v8 模块检查通过：${checks.length} 项`);

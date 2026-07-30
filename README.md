@@ -1,76 +1,165 @@
-# 华医网学习助手 v7
+# 华医网学习助手 v8
 
-面向 2026 年华医网真实页面重新实现的单文件 Tampermonkey 脚本。v7 已删除 v6 的补丁式状态机、重复 Node 自动化实现和相互冲突的旧 UI。
+面向华医网继续医学教育流程的跨端自动化实现。v8 将年度学分规划抽成共享核心，并由 Tampermonkey 与 Hermes/Puppeteer 共用：目标年度默认要求 **公需课 5 分**，再从**继续教育**和**全员专项**中选择课程补足**其他 20 分**。
 
-## 设计原则
+## v8 架构
 
-- 以学习记录页的“已申请”状态作为学分唯一依据。
-- 使用页面提供的真实 `cid`、`cwid` 和操作地址，不拼造课程标识。
-- 播放器保持网站原生行为；助手不控制媒体元素，只读取网站启用的考试入口。
-- “待考试”课件直接使用真实 `cwid` 进入考试，避免返回播放器循环。
-- 控制面板使用 Shadow DOM，与 ASP.NET 表单和网站 CSS 隔离。
-- 所有面板按钮均为普通按钮，不会提交考试或证书表单。
-- 单一持久状态 `HY7_STATE`，跨页面恢复开始、暂停、当前课程和当前课件。
-- 考试先匹配已验证答案；未知题按确定组合重试，不再随机乱选。
-- 只在顶层页面运行，不注入课程页中的指南、药品和 AI iframe。
-
-## 支持的真实流程
-
-```text
-学习记录
-  → 读取已申请学分
-  → 优先处理申请证书
-  → 进入未完成项目
-  → 待考试课件直接考试
-  → 未学习课件进入网站原生播放器
-  → 网站启用考试入口后进入考试
-  → 通过后返回项目继续下一课件
-  → 全部完成后回学习记录核验
-  → 达到 25 分后停止
+```mermaid
+flowchart LR
+    P["年度策略：公需 5 + 其他 20"] --> C["共享规划核心"]
+    C --> T["Tampermonkey 单文件"]
+    C --> H["Hermes / Puppeteer"]
+    T --> W["华医网页面状态机"]
+    H --> E["Win11 Edge / Chrome"]
+    H --> L["WSL + Windows Edge 或 Linux Chromium"]
+    W --> R["学习记录 → 选课 → 课件 → 考试 → 学分申请"]
+    E --> R
+    L --> R
 ```
 
-另外支持问卷必填项、互动病例安全推进、证书申请页和无培训卡停止状态。
+- `src/shared/core.js`：年度记录归一化、分类、已获/已投入学分汇总、动态规划选课。
+- `src/tampermonkey/runtime.js`：页面路由、断点恢复、自动登录、学习/考试/证书/问卷/病例流程。
+- `scripts/build-userscript.js`：把共享核心和浏览器运行时编译成单文件脚本。
+- `src/hermes/`：Win11、WSL、Linux、macOS 浏览器发现和 Hermes/Puppeteer 运行器。
+- `src/tampermonkey/hua-yi-helper.user.js`：生成后的直接安装文件。
 
-## 安装
+## 年度智能规划
+
+规划器把目标年度课程分为：
+
+1. `public`：继续医学教育公需课，独立满足 5 分。
+2. `other`：继续教育专业课程与全员专项，合计满足 20 分。
+
+任务顺序为：
+
+1. 申请已经完成课程的学分；
+2. 从进行中、待考试、未开始的已选课程中挑选足以达标的最优子集；
+3. 扫描课程目录；
+4. 对每一类缺口执行 0.1 学分精度的动态规划；
+5. 依次最小化超额学分、预计时长和课程数量；
+6. 达标后回到学习记录页，以“已申请”状态最终核验。
+
+控制面板同时显示“公需已获/目标（计划值）”和“其他已获/目标（计划值）”，不会再把 25 分总数误判成公需课达标。
+
+## Tampermonkey 安装
 
 1. 安装 Tampermonkey。
-2. 打开：
-   <https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js>
-3. 确认安装版本为 `7.1.0`。
-4. 打开华医网学习记录页，点击面板中的“开始/继续”。
+2. 打开 <https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js>
+3. 确认版本为 `8.0.0`。
+4. 登录华医网，打开学习记录页，点击“开始/继续”。
 
-如果播放器提示存在异常插件，应停用其他会注入所有网站的用户脚本或视频增强扩展。v7 本身不会修改播放器。
+脚本名称保留为“华医网学习助手 v6”，用于让已安装的旧脚本按同一身份原位升级；实际版本由 `@version` 标识。
 
-## 项目结构
+### 本机自动登录
 
-```text
-src/tampermonkey/hua-yi-helper.user.js  # 唯一运行实现
-tests/run-all.js                        # 模块契约测试
-tests/dom-integration.js                # 真实 DOM 格式行为测试
-tests/async-integration.js              # 异步渲染与恢复测试
-tests/source-quality.js                 # 语法、版本和禁止行为检查
-```
+在 Tampermonkey 菜单中选择“设置本机自动登录”，账号和密码只写入当前浏览器的 GM 存储。登录页会自动：
 
-## 本地验证
+- 适配 `#txt_user_name`；
+- 同步填写显示密码框 `#txt_user_pwd` 与真实提交字段 `#txt_user_pwd_real`；
+- 勾选 `#agree1`；
+- 识别 `#txt_img_code` / `#yzm_img` 图形验证码；
+- 验证码已填写后自动点击 `.btn_login`；
+- 登录成功后从 `HY8_STATE` 断点恢复。
+
+## Hermes：Win11
 
 ```powershell
 npm install
+$env:HUAYI_USERNAME = 'USERNAME'
+$env:HUAYI_PASSWORD = 'PASSWORD'
+.\bin\huayi-hermes.ps1 --year 2025
+```
+
+运行器自动寻找 Edge 或 Chrome，默认使用独立资料目录 `.huayi-hermes/browser-profile`。常用参数：
+
+```powershell
+.\bin\huayi-hermes.ps1 `
+  --browser 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' `
+  --year 2025 --public-target 5 --other-target 20 `
+  --captcha-timeout-ms 600000
+```
+
+遇到图形验证码时，前台 Edge 会聚焦验证码输入框；填完即自动提交。也可为一次运行提供 `HUAYI_CAPTCHA_CODE`。账号、密码和验证码均不会写入仓库或运行日志。
+
+## Hermes：WSL
+
+Linux Chromium 可直接启动：
+
+```bash
+npm install
+export HUAYI_USERNAME='USERNAME'
+export HUAYI_PASSWORD='PASSWORD'
+./bin/huayi-hermes --year 2025
+```
+
+WSL 会自动探测 `/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe` 等路径。若 Windows Edge 正在运行，推荐使用 DevTools 连接模式：
+
+```powershell
+# Windows PowerShell
+& 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' `
+  --remote-debugging-port=9222 `
+  --user-data-dir="$env:LOCALAPPDATA\HuayiHermesEdge"
+```
+
+```bash
+# WSL
+export HUAYI_BROWSER_URL='http://127.0.0.1:9222'
+export HUAYI_USERNAME='USERNAME'
+export HUAYI_PASSWORD='PASSWORD'
+./bin/huayi-hermes --year 2025
+```
+
+## 状态机覆盖
+
+```text
+登录
+  → 学习记录（按年度、公需/其他双目标核验）
+  → 申请已完成课程学分
+  → 恢复已投入课程
+  → 扫描公需课 / 继续教育 / 全员专项
+  → 计算最优课程组合
+  → 课程课件
+  → 原生播放器完成后进入考试
+  → 结果页学习已答对题目并确定性重试未知组合
+  → 证书/学分申请
+  → 返回学习记录最终核验
+```
+
+另外覆盖异步页面加载、真实 `cid`/`cwid`、问卷必填、互动病例、唯一培训卡选择、重复注入清理、课程目录去重与跨页面恢复。
+
+## 构建与测试
+
+```powershell
+npm ci
+npm run build
 npm test
 ```
 
-## v7.1.0 修复
+测试包括：
 
-- 学习记录、课件列表、考试题目和结果页增加异步加载等待，避免页面尚未渲染就误跳转或停止。
-- 学分识别兼容 `2.0学分` 与 `5分`，年度筛选跟随当前年份。
-- 课程详情兼容 `href`、`data-href` 和 `onclick` 三类真实入口。
-- 未通过考试时从结果页学习已答对题目，下一轮固定正确题，只遍历仍未知的题目。
-- 验证码与登录页改为明确等待状态，不再当作空白考试页处理。
-- 课程目录过滤已完成项目并记录本轮已尝试课程，避免总是进入第一门课程。
-- 重复注入时清理全部旧面板，互动病例按钮增加重复点击冷却。
+- 年度 5+20 学分规划与缺口/最优子集；
+- 最新学习记录、目录、课件、考试与结果页 DOM；
+- 异步渲染恢复；
+- Win11/WSL 浏览器路径与参数；
+- 最新登录表单和验证码等待；
+- Puppeteer 真实浏览器烟雾测试；
+- 全源码语法、版本一致性、密钥泄露和回归约束。
 
-## 安全与隐私
+需要把本机浏览器烟雾测试设为强制时：
 
-源码不包含账号、密码、GitHub token 或浏览器会话数据。运行状态和答案记录只保存在 Tampermonkey 的 GM 存储中。
+```powershell
+$env:HUAYI_REQUIRE_BROWSER_SMOKE = '1'
+npm test
+```
+
+详细需求覆盖见 [`docs/requirements-matrix.md`](docs/requirements-matrix.md)。
+
+## 隐私
+
+- 源码和测试夹具不包含账号、密码、访问令牌或浏览器会话。
+- Tampermonkey 登录信息只保存在 GM 存储。
+- Hermes 从环境变量或本次命令参数读取登录信息。
+- `.env`、浏览器资料目录和运行日志已加入忽略规则。
 
 ## 协议
 

@@ -1,9 +1,11 @@
 {
   "name": "hua-yi-helper",
-  "version": "7.1.0",
-  "description": "华医网学习助手 v7.1.0 - 基于真实页面重写的可恢复学习流程",
+  "version": "8.0.0",
+  "description": "华医网学习助手 v8.0.0 - Tampermonkey、Hermes、WSL 与 Win11 跨端年度 5+20 智能规划",
   "scripts": {
-    "test": "node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/source-quality.js"
+    "test": "npm run build && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
+    "build": "node scripts/build-userscript.js",
+    "hermes": "node src/hermes/cli.js"
   },
   "keywords": [
     "huayi",
@@ -14,11 +16,13 @@
   ],
   "author": "wzgrx",
   "license": "AGPL-3.0",
-  "dependencies": {},
   "devDependencies": {
     "jsdom": "^26.1.0"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.32.1"
   }
 }

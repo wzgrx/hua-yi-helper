@@ -8,3 +8,4 @@ answers.json
 !src/tampermonkey/*.user.js
 hermes-profile/
 chrome-profile/
+.huayi-hermes/

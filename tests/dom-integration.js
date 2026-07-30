@@ -12,7 +12,7 @@ function boot(html, url, seed = {}) {
   dom.window.GM_deleteValue = key => values.delete(key);
   dom.window.console.log = () => {};
   dom.window.eval(script);
-  return { window: dom.window, api: dom.window.__HY7_TEST_API__, values };
+  return { window: dom.window, api: dom.window.__HY8_TEST_API__, values };
 }
 function test(name, fn) { fn(); console.log(`✅ ${name}`); }
 
@@ -23,7 +23,7 @@ test('路由识别真实页面', () => {
   assert.equal(boot('', 'https://cme28.91huayi.com/course_ware/course_ware_polyv.aspx?cwid=x').api.route(), 'player');
 });
 
-test('学习记录仅累计已申请学分并提取动作', () => {
+test('学习记录按公需/其他分别累计已申请学分并提取动作', () => {
   const { api } = boot(`<table><tbody>
     <tr><td><a href="course.aspx?cid=a">公需课</a></td><td>2026</td><td>公需课5分</td><td>已申请</td><td></td><td></td><td>10/10</td><td></td></tr>
     <tr><td><a href="course.aspx?cid=b">专科课</a></td><td>2026</td><td>3学分</td><td>学习中</td><td></td><td></td><td>2/5</td><td><button onclick="location.href='course.aspx?cid=b'">继续学习</button></td></tr>
@@ -32,6 +32,8 @@ test('学习记录仅累计已申请学分并提取动作', () => {
   assert.equal(info.credit, 5);
   assert.equal(info.courses.length, 2);
   assert.match(info.courses[1].url, /cid=b/);
+  assert.equal(info.summary.publicEarned, 5);
+  assert.equal(info.summary.otherEarned, 0);
 });
 
 test('课程详情解析真实状态与 cwid', () => {
@@ -40,6 +42,39 @@ test('课程详情解析真实状态与 cwid', () => {
   <div class="course" data-href="/course_ware/course_ware.aspx?cwid=three"><span class="course-title">课件三</span><button>学习中</button></div>`);
   const rows = api.scanCoursewares();
   assert.deepEqual(Array.from(rows, x => [x.cwid, x.status]), [['one','已完成'],['two','待考试'],['three','学习中']]);
+});
+
+test('课程目录区分公需、继续教育和全员专项候选', () => {
+  const publicPage = boot(`<h1>继续医学教育公需课</h1><ul>
+    <li class="jet_lis"><a href="/pages/course.aspx?cid=p5">职业素养公需课</a><span>2026 5学分 300分钟</span></li>
+  </ul>`, 'https://cme28.91huayi.com/cme/index.html?type=public');
+  const publicRows = publicPage.api.scanCatalog();
+  assert.equal(publicRows.length, 1);
+  assert.equal(publicRows[0].category, 'public');
+  assert.equal(publicRows[0].credit, 5);
+
+  const specialPage = boot(`<h1>全员专项</h1><ul>
+    <li class="jet_lis"><a href="/pages/course.aspx?cid=s4">专项能力提升</a><span>2026 4学分 4小时</span></li>
+  </ul>`, 'https://cme28.91huayi.com/cme/fme');
+  const specialRows = specialPage.api.scanCatalog();
+  assert.equal(specialRows[0].source, '全员专项');
+  assert.equal(specialRows[0].category, 'other');
+  assert.equal(specialRows[0].durationMinutes, 240);
+});
+
+test('登录页识别最新真实字段与隐藏密码字段', () => {
+  const { api } = boot(`<form id="form1">
+    <input id="txt_user_name" name="txt_user_name">
+    <input id="txt_user_pwd" type="text">
+    <input id="txt_user_pwd_real" name="txt_user_pwd" type="hidden">
+    <input id="txt_img_code" name="txt_img_code">
+    <img id="yzm_img" src="/secure/CheckCode.aspx">
+    <input id="agree1" type="checkbox">
+    <button class="btn_login" type="button">登 录</button>
+  </form>`, 'https://cme28.91huayi.com/secure/login.aspx');
+  const elements = api.loginElements();
+  assert(elements.username && elements.password && elements.passwordReal);
+  assert(elements.captcha && elements.captchaImage && elements.agreement && elements.submit);
 });
 
 test('考试按 name 分组并提取五道真实格式题', () => {
@@ -69,7 +104,7 @@ test('已学习题目不占未知题组合进位', () => {
     { question:'已知题', key:'known', options:[{text:'固定答案'},{text:'其他答案'}] },
     { question:'未知题', key:'unknown', options:[{text:'选项A'},{text:'选项B'}] }
   ];
-  const firstBoot = boot('', undefined, { HY7_ANSWERS: { known: '固定答案' } });
+  const firstBoot = boot('', undefined, { HY8_ANSWERS: { known: '固定答案' } });
   const first = Array.from(firstBoot.api.chooseAnswers(questions, { attempt: 0 }), x => x.text);
   const second = Array.from(firstBoot.api.chooseAnswers(questions, { attempt: 1 }), x => x.text);
   assert.equal(first[0], '固定答案');
@@ -87,7 +122,7 @@ test('结果页仅学习判定正确的题目', () => {
   assert.equal(records.length, 2);
   assert.deepEqual(Array.from(records, item => item.correct), [true, false]);
   assert.equal(api.saveLearnedAnswers(records), 1);
-  const learned = values.get('HY7_ANSWERS');
+  const learned = values.get('HY8_ANSWERS');
   assert.equal(learned[records[0].key], '正确答案');
   assert.equal(learned[records[1].key], undefined);
 });
@@ -124,11 +159,12 @@ test('互动病例内嵌视频结束后允许点击下一页', () => {
   assert.equal(action.text, '下一页');
 });
 
-test('新脚本启动时清理旧 HY7 面板', () => {
+test('新脚本启动时清理旧 HY7 面板并只保留 HY8 面板', () => {
   const { window } = boot('<div id=\"HY7_HOST\"></div><div id=\"HY7_HOST\"></div><main>内容</main>', 'https://hdbl.91huayi.com/?x=1#/home');
-  const hosts = window.document.querySelectorAll('#HY7_HOST');
+  const hosts = window.document.querySelectorAll('#HY8_HOST');
   assert.equal(hosts.length, 1);
-  assert.match(hosts[0].shadowRoot.textContent, /华医助手 v7\.\d+\.\d+/);
+  assert.match(hosts[0].shadowRoot.textContent, /华医助手 v8\.\d+\.\d+/);
+  assert.equal(window.document.querySelectorAll('#HY7_HOST').length, 0);
 });
 
 test('disabled 与 aria-disabled 均不可用', () => {
@@ -137,4 +173,4 @@ test('disabled 与 aria-disabled 均不可用', () => {
   assert.equal(api.enabled(window.document.getElementById('b')), false);
   assert.equal(api.enabled(window.document.getElementById('c')), false);
 });
-console.log('v7 DOM 行为测试全部通过');
+console.log('v8 DOM 行为测试全部通过');
