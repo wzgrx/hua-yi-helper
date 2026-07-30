@@ -6,7 +6,11 @@ const os = require('os');
 const path = require('path');
 const puppeteer = require('puppeteer-core');
 const { resolveBrowser } = require('../src/hermes/config');
-const { closeRuntimeResources, clickTrustedPlayerAction } = require('../src/hermes/runner');
+const {
+  closeRuntimeResources,
+  clickTrustedPlayerAction,
+  updatePlayerWatch
+} = require('../src/hermes/runner');
 
 (async () => {
   const executablePath = resolveBrowser(process.env.HUAYI_BROWSER);
@@ -39,6 +43,25 @@ const { closeRuntimeResources, clickTrustedPlayerAction } = require('../src/herm
     assert.equal(trusted.selector, '.pv-bad-network-tip span[type="change"]');
     assert.equal(trusted.text, '切换到流畅');
     assert.equal(await page.evaluate(() => window.__trustedClick), true);
+    const playing = {
+      url: 'https://cme28.91huayi.com/course_ware/course_ware_polyv.aspx?cwid=fixture',
+      currentTime: 100,
+      duration: 1000,
+      paused: false,
+      ended: false,
+      readyState: 2,
+      networkState: 2
+    };
+    const initialWatch = updatePlayerWatch(null, playing, 1000, 45000);
+    assert.equal(initialWatch.stalled, false);
+    const stalledWatch = updatePlayerWatch(initialWatch.watch, playing, 46001, 45000);
+    assert.equal(stalledWatch.stalled, true);
+    const advancedWatch = updatePlayerWatch(stalledWatch.watch,
+      Object.assign({}, playing, { currentTime: 101 }), 47000, 45000);
+    assert.equal(advancedWatch.stalled, false);
+    const pausedWatch = updatePlayerWatch(initialWatch.watch,
+      Object.assign({}, playing, { paused: true }), 60000, 45000);
+    assert.equal(pausedWatch.stalled, false);
     console.log(`Hermes 真实浏览器烟雾测试通过：${version}`);
   } finally {
     await closeRuntimeResources(browser, null, false, profile);

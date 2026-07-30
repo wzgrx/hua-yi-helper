@@ -463,6 +463,45 @@ async function clickTrustedPlayerAction(page) {
   return null;
 }
 
+async function readPlayerMediaState(page) {
+  return page.evaluate(() => {
+    const video = document.querySelector('video');
+    if (!video) return null;
+    return {
+      url: location.href,
+      currentTime: Number(video.currentTime || 0),
+      duration: Number(video.duration || 0),
+      paused: Boolean(video.paused),
+      ended: Boolean(video.ended),
+      readyState: Number(video.readyState || 0),
+      networkState: Number(video.networkState || 0)
+    };
+  });
+}
+
+function updatePlayerWatch(previous, sample, now = Date.now(), stallMs = 45000) {
+  if (!sample || !/course_ware/i.test(String(sample.url || '')) ||
+      !Number.isFinite(sample.currentTime)) {
+    return { watch: null, stalled: false };
+  }
+  const playbackPosition = Number(sample.currentTime);
+  const duration = Number.isFinite(sample.duration) ? Number(sample.duration) : 0;
+  const identity = `${sample.url}|${duration.toFixed(3)}`;
+  const moved = !previous || previous.identity !== identity ||
+    Math.abs(playbackPosition - previous.position) >= 0.25;
+  const watch = {
+    identity,
+    position: playbackPosition,
+    lastProgressAt: moved ? now : previous.lastProgressAt
+  };
+  const activelyExpected = !sample.paused && !sample.ended &&
+    duration > 0 && playbackPosition + 1 < duration;
+  return {
+    watch,
+    stalled: activelyExpected && now - watch.lastProgressAt >= stallMs
+  };
+}
+
 function processExists(pid) {
   if (!pid) return false;
   try {
@@ -607,6 +646,7 @@ async function runHermes(config, callbacks) {
   let lastTaskSignature = '';
   let lastTrustedSignature = '';
   let lastTrustedActionAt = 0;
+  let playerWatch = null;
   while (Date.now() - startedAt < config.maxRuntimeMs) {
     await new Promise(resolve => setTimeout(resolve, 1000));
     if (/\/secure\/login/i.test(page.url())) {
@@ -628,6 +668,26 @@ async function runHermes(config, callbacks) {
         lastTrustedSignature = trustedSignature;
         lastTrustedActionAt = Date.now();
       }
+    }
+    if (/course_ware/i.test(page.url())) {
+      const media = await readPlayerMediaState(page).catch(() => null);
+      const observed = updatePlayerWatch(playerWatch, media);
+      playerWatch = observed.watch;
+      if (observed.stalled && media && page.url() === media.url) {
+        report({
+          type: 'player_recovery',
+          message: `播放器连续无进度，正在刷新恢复（${Math.floor(media.currentTime)} 秒，readyState=${media.readyState}）`
+        });
+        try {
+          await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+        } catch (_) {}
+        playerWatch = null;
+        lastTrustedSignature = '';
+        lastTrustedActionAt = 0;
+        continue;
+      }
+    } else {
+      playerWatch = null;
     }
     let state;
     try { state = await readState(page); } catch (_) { continue; }
@@ -672,6 +732,8 @@ module.exports = {
   handleLogin,
   readState,
   clickTrustedPlayerAction,
+  readPlayerMediaState,
+  updatePlayerWatch,
   processExists,
   killBrowserProcessesForProfile,
   closeRuntimeResources,
