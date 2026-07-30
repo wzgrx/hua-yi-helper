@@ -954,7 +954,12 @@
     ['认知障碍自评量表（AD8）的评分标准', '≥2 分'],
     ['血液生物标志物可用于预测脑内Aβ病理改变', '血浆Aβ42/40比值'],
     ['MES量表主要涵盖哪两个认知域', '记忆与执行功能'],
-    ['水平变化早于海马萎缩和临床症状', 'CSF Aβ42']
+    ['水平变化早于海马萎缩和临床症状', 'CSF Aβ42'],
+    ['用于评估患者情景记忆的常用测验', '韦氏记忆量表个人经历分测验'],
+    ['MMSE）的缺点，下列说法错误', '不受教育程度影响'],
+    ['评估痴呆患者精神行为症状的常用量表', 'NPI'],
+    ['主要用于评估痴呆患者的日常生活功能', 'ADL'],
+    ['用于评估患者总体退化程度的量表', 'GDS']
   ];
   function verifiedAnswer(question) {
     var q = clean(question).replace(/m²/g, 'm2');
@@ -1002,6 +1007,18 @@
       return choice;
     });
   }
+  function fixedAnswerSignature(questions, choices) {
+    var learned = read(ANSWER_KEY, {});
+    var fixed = questions.every(function (item) {
+      var known = learned[item.key] || verifiedAnswer(item.question);
+      var knownKey = normalize(known);
+      return knownKey && item.options.some(function (option) { return normalize(option.text) === knownKey; });
+    });
+    if (!fixed) return '';
+    return choices.map(function (choice, index) {
+      return questions[index].key + '=' + normalize(choice && choice.text);
+    }).join('|');
+  }
   function answerCombinationCount(questions) {
     var learned = read(ANSWER_KEY, {});
     return questions.reduce(function (total, item) {
@@ -1030,11 +1047,21 @@
     var exams = read(EXAM_KEY, {});
     var examState = exams[cwid] || { attempt: 0, submitted: {} };
     var combinations = answerCombinationCount(questions);
-    if (Number(examState.attempt || 0) >= combinations) {
+    var choices = chooseAnswers(questions, examState);
+    var fixedSignature = fixedAnswerSignature(questions, choices);
+    if (fixedSignature && examState.fixedSignatureAttempted === fixedSignature) {
+      setState({ running: false, phase: 'exam', message: '当前已知答案组合已提交过，已停止重复提交' });
+      return;
+    }
+    if (!fixedSignature && Number(examState.attempt || 0) >= combinations) {
       setState({ running: false, phase: 'exam', message: '所有可识别答案组合均已尝试，已停止以避免循环' });
       return;
     }
-    var choices = chooseAnswers(questions, examState);
+    if (fixedSignature) {
+      examState.fixedSignatureAttempted = fixedSignature;
+      exams[cwid] = examState;
+      write(EXAM_KEY, exams);
+    }
     setState({ phase: 'exam', message: '正在选择 ' + questions.length + ' 道题（第' + (examState.attempt + 1) + '次）' });
     choices.forEach(function (choice, index) {
       setTimeout(function () {
@@ -1845,6 +1872,7 @@
       parseExam: parseExam, parseResultAnswers: parseResultAnswers, saveLearnedAnswers: saveLearnedAnswers,
       findResultNextAction: findResultNextAction,
       verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, answerCombinationCount: answerCombinationCount,
+      fixedAnswerSignature: fixedAnswerSignature,
       enabled: enabled, normalize: normalize, findCaseAction: findCaseAction, caseVideoStatus: caseVideoStatus,
       playerMediaStatus: playerMediaStatus, findPlayerPrompt: findPlayerPrompt,
       needsTrustedPlayerClick: needsTrustedPlayerClick,

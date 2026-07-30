@@ -445,6 +445,18 @@ async function readState(page) {
   });
 }
 
+function operationTimeout(promise, timeoutMs, label) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`${label || '浏览器操作'}超过 ${timeoutMs}ms 无响应`);
+      error.code = 'HERMES_OPERATION_TIMEOUT';
+      reject(error);
+    }, timeoutMs);
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+}
+
 async function clickTrustedPlayerAction(page) {
   const selectors = [
     '.pv-bad-network-tip span[type="change"]',
@@ -658,7 +670,12 @@ async function runHermes(config, callbacks) {
       }
     }
     if (/course_ware/i.test(page.url()) && Date.now() - lastTrustedActionAt > 800) {
-      const trusted = await clickTrustedPlayerAction(page).catch(() => null);
+      let trusted = null;
+      try {
+        trusted = await operationTimeout(clickTrustedPlayerAction(page), 10000, '播放器提示检测');
+      } catch (error) {
+        if (error && error.code === 'HERMES_OPERATION_TIMEOUT') throw error;
+      }
       if (trusted) {
         const trustedSignature = `${page.url()}|${trusted.selector}|${trusted.text}`;
         if (trustedSignature !== lastTrustedSignature || Date.now() - lastTrustedActionAt > 4000) {
@@ -672,7 +689,12 @@ async function runHermes(config, callbacks) {
       }
     }
     if (/course_ware/i.test(page.url())) {
-      const media = await readPlayerMediaState(page).catch(() => null);
+      let media = null;
+      try {
+        media = await operationTimeout(readPlayerMediaState(page), 10000, '播放器状态读取');
+      } catch (error) {
+        if (error && error.code === 'HERMES_OPERATION_TIMEOUT') throw error;
+      }
       const observed = updatePlayerWatch(playerWatch, media);
       playerWatch = observed.watch;
       if (observed.stalled && media && page.url() === media.url) {
@@ -692,7 +714,12 @@ async function runHermes(config, callbacks) {
       playerWatch = null;
     }
     let state;
-    try { state = await readState(page); } catch (_) { continue; }
+    try {
+      state = await operationTimeout(readState(page), 10000, '页面状态读取');
+    } catch (error) {
+      if (error && error.code === 'HERMES_OPERATION_TIMEOUT') throw error;
+      continue;
+    }
     if (!state) continue;
     const signature = [state.phase, state.message, state.credit, state.publicEarned, state.otherEarned].join('|');
     if (signature !== lastSignature) {
@@ -733,6 +760,7 @@ module.exports = {
   waitForLoginOutcome,
   handleLogin,
   readState,
+  operationTimeout,
   clickTrustedPlayerAction,
   readPlayerMediaState,
   updatePlayerWatch,

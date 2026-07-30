@@ -9,10 +9,16 @@ const { resolveBrowser } = require('../src/hermes/config');
 const {
   closeRuntimeResources,
   clickTrustedPlayerAction,
+  operationTimeout,
   updatePlayerWatch
 } = require('../src/hermes/runner');
 
 (async () => {
+  assert.equal(await operationTimeout(Promise.resolve('ok'), 50, 'fixture'), 'ok');
+  await assert.rejects(
+    operationTimeout(new Promise(() => {}), 20, 'fixture'),
+    error => error && error.code === 'HERMES_OPERATION_TIMEOUT'
+  );
   const executablePath = resolveBrowser(process.env.HUAYI_BROWSER);
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'huayi-hermes-smoke-'));
   let browser;

@@ -276,6 +276,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('Aβ 的主要清除部位是?'), '脑部');
   assert.equal(api.verifiedAnswer('认知障碍自评量表（AD8）的评分标准中，提示需进一步临床评估的总分阈值是？'), '≥2 分');
   assert.equal(api.verifiedAnswer('MES量表主要涵盖哪两个认知域的评估？'), '记忆与执行功能');
+  assert.equal(api.verifiedAnswer('在痴呆的神经心理学评估中，用于评估患者情景记忆的常用测验是？'), '韦氏记忆量表个人经历分测验');
+  assert.equal(api.verifiedAnswer('关于简易精神状态检查（MMSE）的缺点，下列说法错误的是？'), '不受教育程度影响');
+  assert.equal(api.verifiedAnswer('以下哪项是评估痴呆患者精神行为症状的常用量表？'), 'NPI');
+  assert.equal(api.verifiedAnswer('以下哪种量表主要用于评估痴呆患者的日常生活功能？'), 'ADL');
+  assert.equal(api.verifiedAnswer('在痴呆诊疗中，用于评估患者总体退化程度的量表是？'), 'GDS');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
@@ -298,6 +303,20 @@ test('已学习题目不占未知题组合进位', () => {
   assert.equal(second[0], '固定答案');
   assert.notEqual(first[1], second[1]);
   assert.equal(firstBoot.api.answerCombinationCount(questions), 2);
+});
+
+test('全量已知答案生成稳定签名且未知题不生成签名', () => {
+  const { api } = boot('');
+  const known = [{
+    question: '以下哪种量表主要用于评估痴呆患者的日常生活功能？',
+    key: 'known-adl',
+    options: [{ text: 'ADL' }, { text: 'NPI' }]
+  }];
+  const choices = api.chooseAnswers(known, { attempt: 99 });
+  assert.equal(choices[0].text, 'ADL');
+  assert(api.fixedAnswerSignature(known, choices).includes('known-adl=adl'));
+  const unknown = [{ question: '未知题', key: 'unknown', options: [{ text: 'A' }, { text: 'B' }] }];
+  assert.equal(api.fixedAnswerSignature(unknown, api.chooseAnswers(unknown, { attempt: 0 })), '');
 });
 
 test('结果页仅学习判定正确的题目', () => {
