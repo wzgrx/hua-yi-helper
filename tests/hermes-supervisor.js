@@ -7,6 +7,8 @@ const path = require('path');
 const {
   atomicWriteJson,
   acquireLock,
+  buildKeepAwakeScript,
+  startKeepAwake,
   superviseHermes
 } = require('../src/hermes/supervisor');
 const { closeRuntimeResources } = require('../src/hermes/runner');
@@ -26,6 +28,17 @@ const { closeRuntimeResources } = require('../src/hermes/runner');
     assert.throws(() => acquireLock(lockFile), /已有 Hermes 监督器/);
     release();
     assert.equal(fs.existsSync(lockFile), false);
+
+    const keepAwakeScript = buildKeepAwakeScript();
+    assert(keepAwakeScript.includes("$ErrorActionPreference = 'Stop'"));
+    assert(keepAwakeScript.includes("[Convert]::ToUInt32('80000000', 16)"));
+    assert(!keepAwakeScript.includes('SetThreadExecutionState(0x80000001)'));
+    if (process.platform === 'win32') {
+      const awake = startKeepAwake(true);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      assert.equal(awake.isRunning(), true);
+      awake.close();
+    }
 
     let runs = 0;
     let delays = 0;

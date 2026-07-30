@@ -63,13 +63,21 @@ function acquireLock(file) {
   throw new Error('Hermes 监督器锁创建失败');
 }
 
+function buildKeepAwakeScript() {
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class Awake { [DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint e); }'",
+    "$continuous = [Convert]::ToUInt32('80000000', 16)",
+    "$systemRequired = [Convert]::ToUInt32('00000001', 16)",
+    '$enabled = $continuous -bor $systemRequired',
+    '[Awake]::SetThreadExecutionState($enabled) | Out-Null',
+    'try { while ($true) { Start-Sleep -Seconds 30 } } finally { [Awake]::SetThreadExecutionState($continuous) | Out-Null }'
+  ].join('; ');
+}
+
 function startKeepAwake(enabled, report) {
   if (!enabled || process.platform !== 'win32') return { close() {} };
-  const script = [
-    "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class Awake { [DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint e); }'",
-    '[Awake]::SetThreadExecutionState(0x80000001) | Out-Null',
-    'try { while ($true) { Start-Sleep -Seconds 30 } } finally { [Awake]::SetThreadExecutionState(0x80000000) | Out-Null }'
-  ].join('; ');
+  const script = buildKeepAwakeScript();
   const child = childProcess.spawn(
     'powershell.exe',
     ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', script],
@@ -77,6 +85,10 @@ function startKeepAwake(enabled, report) {
   );
   if (report) report({ type: 'keep_awake', message: `临时保持系统唤醒已启用（PID ${child.pid}）` });
   return {
+    pid: child.pid,
+    isRunning() {
+      return Boolean(child.pid) && child.exitCode === null && !child.killed;
+    },
     close() {
       if (!child.pid || child.exitCode !== null) return;
       childProcess.spawnSync(
@@ -204,6 +216,7 @@ module.exports = {
   appendEvent,
   readLock,
   acquireLock,
+  buildKeepAwakeScript,
   startKeepAwake,
   delay,
   superviseHermes
