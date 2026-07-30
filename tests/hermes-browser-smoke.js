@@ -54,7 +54,7 @@ const {
     };
     const initialWatch = updatePlayerWatch(null, playing, 1000, 45000);
     assert.equal(initialWatch.stalled, false);
-    const stalledWatch = updatePlayerWatch(initialWatch.watch, playing, 46001, 45000);
+    const stalledWatch = updatePlayerWatch(initialWatch.watch, playing, 21001, 45000);
     assert.equal(stalledWatch.stalled, true);
     const advancedWatch = updatePlayerWatch(stalledWatch.watch,
       Object.assign({}, playing, { currentTime: 101 }), 47000, 45000);
