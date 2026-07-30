@@ -447,6 +447,7 @@ async function readState(page) {
 
 async function clickTrustedPlayerAction(page) {
   const selectors = [
+    '.pv-bad-network-tip span[type="change"]',
     '.layer_tips .rig_btn',
     '.study_diaog .btn_sign'
   ];
