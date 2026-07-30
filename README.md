@@ -1,4 +1,4 @@
-# 华医网学习助手 v8.5.3
+# 华医网学习助手 v8.6.0
 
 面向华医网继续医学教育流程的跨端自动化实现。v8 将年度学分规划抽成共享核心，并由 Tampermonkey 与 Hermes/Puppeteer 共用：目标年度默认要求 **公需课 5 分**，再从**继续教育**和**全员专项**中选择课程补足**其他 20 分**。
 
@@ -49,7 +49,7 @@ flowchart LR
 
 1. 安装 Tampermonkey。
 2. 打开 <https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js>
-3. 确认版本为 `8.5.3`。
+3. 确认版本为 `8.6.0`。
 4. 登录华医网，打开学习记录页，点击“开始/继续”。
 
 脚本名称保留为“华医网学习助手 v6”，用于让已安装的旧脚本按同一身份原位升级；实际版本由 `@version` 标识。

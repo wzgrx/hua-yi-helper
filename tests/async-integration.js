@@ -92,10 +92,11 @@ function boot(url, seed = {}) {
     assert.equal(exams['result-exam'].attempt, 0);
     assert.deepEqual(
       Array.from(exams['result-exam'].rejected.第二题),
-      ['错误答案']
+      ['option:A']
     );
     assert.equal(learned.第一题, '正确答案');
     assert.equal(learned.第二题, undefined);
+    assert.equal(fixture.values.get('HY8_ANSWER_OPTIONS').第一题, 'B');
     fixture.dom.window.close();
     console.log('✅ 未通过结果页学习正确题并推进下一轮');
   }

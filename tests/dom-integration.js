@@ -393,6 +393,28 @@ test('结果判错后排除旧答案并缩小组合空间', () => {
   assert.equal(api.answerCombinationCount(questions, examState), 1);
 });
 
+test('重复答案文本按选项字母区分，排除B后仍可选择C', () => {
+  const questions = [{
+    question: '房颤共有风险因素',
+    key: 'duplicate-option',
+    options: [
+      { text: '低血压', optionKey: 'A' },
+      { text: '甲状腺功能亢进', optionKey: 'B' },
+      { text: '甲状腺功能亢进', optionKey: 'C' },
+      { text: '低血糖', optionKey: 'D' }
+    ]
+  }];
+  const { api } = boot('', undefined, {
+    HY8_ANSWERS: { 'duplicate-option': '甲状腺功能亢进' },
+    HY8_ANSWER_OPTIONS: { 'duplicate-option': 'C' }
+  });
+  const examState = { attempt: 0, rejected: { 'duplicate-option': ['option:B'] } };
+  const choices = api.chooseAnswers(questions, examState);
+  assert.equal(choices[0].optionKey, 'C');
+  assert.equal(api.answerCombinationCount(questions, examState), 1);
+  assert(api.fixedAnswerSignature(questions, choices, examState).includes('@C'));
+});
+
 test('结果页仅学习判定正确的题目', () => {
   const { api, values } = boot(`
     <section><div class="state_cour_lis"><img src="/images/bar_img.png"><p title="1、第一题">第一题</p></div><div>【您的答案：B、正确答案】</div></section>
@@ -401,13 +423,15 @@ test('结果页仅学习判定正确的题目', () => {
   const records = api.parseResultAnswers({ 第一题: '正确答案', 第二题: '错误答案' });
   assert.equal(records.length, 2);
   assert.deepEqual(Array.from(records, item => item.correct), [true, false]);
+  assert.deepEqual(Array.from(records, item => item.optionKey), ['B', 'A']);
   assert.equal(api.saveLearnedAnswers(records), 1);
   const learned = values.get('HY8_ANSWERS');
   assert.equal(learned[records[0].key], '正确答案');
   assert.equal(learned[records[1].key], undefined);
+  assert.equal(values.get('HY8_ANSWER_OPTIONS')[records[0].key], 'B');
   const examState = {};
   assert.equal(api.saveRejectedAnswers(records, examState), 1);
-  assert.equal(examState.rejected[records[1].key][0], '错误答案');
+  assert.equal(examState.rejected[records[1].key][0], 'option:A');
   assert.equal(api.saveRejectedAnswers(records, examState), 0);
 });
 
@@ -426,15 +450,23 @@ test('新版结果列表从每一题自身节点提取答案并保持题答对�
   </ul>`, 'https://cme28.91huayi.com/pages/exam_result.aspx?cwid=x');
   const records = api.parseResultAnswers({});
   assert.deepEqual(Array.from(records, item => item.answer), ['第一题正确答案', '第二题错误答案']);
+  assert.deepEqual(Array.from(records, item => item.optionKey), ['B', 'D']);
   assert.deepEqual(Array.from(records, item => item.correct), [true, false]);
 });
 
 test('考试通过后将本轮全部提交答案写入题库', () => {
   const { api, values } = boot('');
-  assert.equal(api.savePassedAnswers({ question_one: '答案甲', question_two: '答案乙' }), 2);
+  assert.equal(api.savePassedAnswers(
+    { question_one: '答案甲', question_two: '答案乙' },
+    { question_one: 'B', question_two: 'D' }
+  ), 2);
   assert.deepEqual(values.get('HY8_ANSWERS'), {
     question_one: '答案甲',
     question_two: '答案乙'
+  });
+  assert.deepEqual(values.get('HY8_ANSWER_OPTIONS'), {
+    question_one: 'B',
+    question_two: 'D'
   });
 });
 

@@ -6,6 +6,7 @@
   var VERSION = '__PACKAGE_VERSION__';
   var STATE_KEY = 'HY8_STATE';
   var ANSWER_KEY = 'HY8_ANSWERS';
+  var ANSWER_OPTION_KEY = 'HY8_ANSWER_OPTIONS';
   var EXAM_KEY = 'HY8_EXAMS';
   var CLASSROOM_KEY = 'HY8_CLASSROOM';
   var POLICY_KEY = 'HY8_POLICY';
@@ -26,6 +27,7 @@
   function migrateLegacy() {
     if (read(STATE_KEY, null) == null) write(STATE_KEY, read('HY7_STATE', {}));
     if (read(ANSWER_KEY, null) == null) write(ANSWER_KEY, read('HY7_ANSWERS', {}));
+    if (read(ANSWER_OPTION_KEY, null) == null) write(ANSWER_OPTION_KEY, {});
     if (read(EXAM_KEY, null) == null) write(EXAM_KEY, read('HY7_EXAMS', {}));
   }
   migrateLegacy();
@@ -1041,30 +1043,59 @@
       var questionNode = table.querySelector('th,thead td,tr:first-child td');
       var question = clean(questionNode ? questionNode.textContent : table.textContent);
       var radios = Array.from(table.querySelectorAll('input[type="radio"]'));
-      var options = radios.map(function (input) {
+      var options = radios.map(function (input, optionIndex) {
         var row = input.closest('tr,td,label') || input.parentElement;
-        var text = clean(row ? row.innerText || row.textContent : '');
-        text = text.replace(/^[A-E][、.．)\s]*/, '');
-        return { input: input, text: text };
+        var rawText = clean(row ? row.innerText || row.textContent : '');
+        var letter = (rawText.match(/^([A-E])[、.．)\s]*/i) || [])[1];
+        var text = rawText.replace(/^[A-E][、.．)\s]*/i, '');
+        return {
+          input: input,
+          text: text,
+          optionKey: clean(letter || input.value || String(optionIndex + 1)).toUpperCase()
+        };
       });
       return { question: question, key: normalize(question).slice(0, 100), options: options };
     }).filter(function (item) { return item.options.length > 1; });
   }
+  function optionIsRejected(option, values) {
+    values = Array.isArray(values) ? values : [];
+    var optionKey = clean(option && option.optionKey).toUpperCase();
+    var textKey = normalize(option && option.text);
+    return values.some(function (value) {
+      var raw = clean(value);
+      var tagged = raw.match(/^option:(.+)$/i);
+      if (tagged) return clean(tagged[1]).toUpperCase() === optionKey;
+      return normalize(raw) === textKey;
+    });
+  }
+  function knownExamOption(item, known, preferredOptionKey, rejectedValues) {
+    var knownKey = normalize(known);
+    if (!knownKey) return null;
+    var matches = item.options.filter(function (option) {
+      return normalize(option.text) === knownKey && !optionIsRejected(option, rejectedValues);
+    });
+    var preferred = clean(preferredOptionKey).toUpperCase();
+    if (preferred) {
+      var exact = matches.find(function (option) {
+        return clean(option.optionKey).toUpperCase() === preferred;
+      });
+      if (exact) return exact;
+    }
+    return matches.length === 1 ? matches[0] : null;
+  }
   function chooseAnswers(questions, examState) {
     var learned = read(ANSWER_KEY, {});
+    var learnedOptions = read(ANSWER_OPTION_KEY, {});
     var attempt = Number(examState.attempt || 0);
     var rejected = examState.rejected || {};
     var divisor = 1;
     return questions.map(function (item) {
       var known = learned[item.key] || verifiedAnswer(item.question);
-      var rejectedKeys = Array.isArray(rejected[item.key]) ? rejected[item.key].map(normalize) : [];
-      if (known) {
-        var nk = normalize(known);
-        var exact = rejectedKeys.indexOf(nk) < 0 && item.options.find(function (option) { return normalize(option.text) === nk; });
-        if (exact) return exact;
-      }
+      var rejectedValues = rejected[item.key] || [];
+      var exact = knownExamOption(item, known, learnedOptions[item.key], rejectedValues);
+      if (exact) return exact;
       var available = item.options.filter(function (option) {
-        return rejectedKeys.indexOf(normalize(option.text)) < 0;
+        return !optionIsRejected(option, rejectedValues);
       });
       if (!available.length) available = item.options.slice();
       var ranked = available.sort(function (a, b) { return scoreOption(item.question, b.text) - scoreOption(item.question, a.text); });
@@ -1075,31 +1106,29 @@
   }
   function fixedAnswerSignature(questions, choices, examState) {
     var learned = read(ANSWER_KEY, {});
+    var learnedOptions = read(ANSWER_OPTION_KEY, {});
     var rejected = examState && examState.rejected || {};
     var fixed = questions.every(function (item) {
       var known = learned[item.key] || verifiedAnswer(item.question);
-      var knownKey = normalize(known);
-      var rejectedKeys = Array.isArray(rejected[item.key]) ? rejected[item.key].map(normalize) : [];
-      return knownKey && rejectedKeys.indexOf(knownKey) < 0 &&
-        item.options.some(function (option) { return normalize(option.text) === knownKey; });
+      return !!knownExamOption(item, known, learnedOptions[item.key], rejected[item.key] || []);
     });
     if (!fixed) return '';
     return choices.map(function (choice, index) {
-      return questions[index].key + '=' + normalize(choice && choice.text);
+      return questions[index].key + '=' + normalize(choice && choice.text) +
+        '@' + clean(choice && choice.optionKey).toUpperCase();
     }).join('|');
   }
   function answerCombinationCount(questions, examState) {
     var learned = read(ANSWER_KEY, {});
+    var learnedOptions = read(ANSWER_OPTION_KEY, {});
     var rejected = examState && examState.rejected || {};
     return questions.reduce(function (total, item) {
       var known = learned[item.key] || verifiedAnswer(item.question);
-      var knownKey = normalize(known);
-      var rejectedKeys = Array.isArray(rejected[item.key]) ? rejected[item.key].map(normalize) : [];
-      var fixed = knownKey && rejectedKeys.indexOf(knownKey) < 0 &&
-        item.options.some(function (option) { return normalize(option.text) === knownKey; });
+      var rejectedValues = rejected[item.key] || [];
+      var fixed = !!knownExamOption(item, known, learnedOptions[item.key], rejectedValues);
       if (fixed) return total;
       var availableCount = item.options.filter(function (option) {
-        return rejectedKeys.indexOf(normalize(option.text)) < 0;
+        return !optionIsRejected(option, rejectedValues);
       }).length;
       return Math.min(Number.MAX_SAFE_INTEGER, total * Math.max(1, availableCount));
     }, 1);
@@ -1137,6 +1166,7 @@
       exams[cwid] = examState;
       write(EXAM_KEY, exams);
     }
+    examState.submittedOptionKeys = examState.submittedOptionKeys || {};
     setState({ phase: 'exam', message: '正在选择 ' + questions.length + ' 道题（第' + (examState.attempt + 1) + '次）' });
     choices.forEach(function (choice, index) {
       setTimeout(function () {
@@ -1147,6 +1177,7 @@
           choice.input.dispatchEvent(new Event('change', { bubbles: true }));
         }
         examState.submitted[questions[index].key] = choice.text;
+        examState.submittedOptionKeys[questions[index].key] = choice.optionKey;
         exams[cwid] = examState; write(EXAM_KEY, exams);
         if (index === choices.length - 1) {
           setState({ message: '已完成 ' + choices.length + ' 道题，准备提交' });
@@ -1171,8 +1202,9 @@
     if (/bar_img|right|correct|正确|答对/i.test(signal)) return true;
     return null;
   }
-  function parseResultAnswers(submitted) {
+  function parseResultAnswers(submitted, submittedOptionKeys) {
     submitted = submitted || {};
+    submittedOptionKeys = submittedOptionKeys || {};
     var body = pageText();
     var items = Array.from(document.querySelectorAll('.state_cour_lis'));
     if (items.length) {
@@ -1185,35 +1217,56 @@
         var answerNode = Array.from(block.querySelectorAll('p[title],p,.answer,[class*="answer"]')).find(function (node) {
           return node !== questionNode && /您的答案/.test(clean(node.textContent));
         });
-        var answer = answerNode ? clean(answerNode.getAttribute('title') || answerNode.textContent) : '';
-        if (!answer) {
+        var rawAnswer = answerNode ? clean(answerNode.getAttribute('title') || answerNode.textContent) : '';
+        if (!rawAnswer) {
           var sibling = block.nextElementSibling;
           var local = clean(sibling ? sibling.innerText || sibling.textContent : block.innerText || block.textContent);
-          var match = local.match(/您的答案[：:]\s*(?:[A-Z][、.．)\s]*)?([^】\n]+)/i);
-          answer = clean(match && match[1]);
+          var match = local.match(/您的答案[：:]\s*([^】\n]+)/i);
+          rawAnswer = clean(match && match[1]);
         }
-        answer = answer.replace(/^【?您的答案[：:]\s*/i, '').replace(/】$/, '').replace(/^[A-Z][、.．)\s]*/i, '');
-        return { key: key, answer: answer || submitted[key], correct: resultCorrect(block, image) };
+        rawAnswer = rawAnswer.replace(/^【?您的答案[：:]\s*/i, '').replace(/】$/, '');
+        var optionKey = clean((rawAnswer.match(/^([A-Z])[、.．)\s]*/i) || [])[1] || submittedOptionKeys[key]).toUpperCase();
+        var answer = rawAnswer.replace(/^[A-Z][、.．)\s]*/i, '');
+        return {
+          key: key,
+          answer: answer || submitted[key],
+          optionKey: optionKey,
+          correct: resultCorrect(block, image)
+        };
       }).filter(Boolean);
     }
     return body.split(/(?=\d+[、.．])/).map(function (block) {
       var questionMatch = block.match(/^\d+[、.．]\s*([^【\n]+)/);
-      var answerMatch = block.match(/您的答案[：:]\s*(?:[A-Z][、.．)\s]*)?([^】\n]+)/i);
       if (!questionMatch) return null;
       var key = normalize(questionMatch[1]).slice(0, 100);
-      return { key: key, answer: clean(answerMatch && answerMatch[1] ? answerMatch[1] : submitted[key]), correct: null };
+      var answerMatch = block.match(/您的答案[：:]\s*([^】\n]+)/i);
+      var rawAnswer = clean(answerMatch && answerMatch[1]);
+      var optionKey = clean((rawAnswer.match(/^([A-Z])[、.．)\s]*/i) || [])[1] || submittedOptionKeys[key]).toUpperCase();
+      var answer = rawAnswer.replace(/^[A-Z][、.．)\s]*/i, '');
+      return { key: key, answer: answer || submitted[key], optionKey: optionKey, correct: null };
     }).filter(Boolean);
   }
   function saveLearnedAnswers(records) {
     var learned = read(ANSWER_KEY, {});
+    var learnedOptions = read(ANSWER_OPTION_KEY, {});
     var changed = 0;
     records.forEach(function (entry) {
-      if (entry.correct === true && entry.key && entry.answer && learned[entry.key] !== entry.answer) {
+      if (entry.correct !== true || !entry.key || !entry.answer) return;
+      var optionKey = clean(entry.optionKey).toUpperCase();
+      var answerChanged = learned[entry.key] !== entry.answer;
+      var optionChanged = !!optionKey && learnedOptions[entry.key] !== optionKey;
+      if (answerChanged) {
         learned[entry.key] = entry.answer;
+      }
+      if (optionChanged) {
+        learnedOptions[entry.key] = optionKey;
+      }
+      if (answerChanged || optionChanged) {
         changed++;
       }
     });
     if (changed) write(ANSWER_KEY, learned);
+    if (changed) write(ANSWER_OPTION_KEY, learnedOptions);
     return changed;
   }
   function saveRejectedAnswers(records, examState) {
@@ -1222,18 +1275,21 @@
     records.forEach(function (entry) {
       if (entry.correct !== false || !entry.key || !entry.answer) return;
       var values = Array.isArray(examState.rejected[entry.key]) ? examState.rejected[entry.key] : [];
-      var answerKey = normalize(entry.answer);
-      if (!values.some(function (value) { return normalize(value) === answerKey; })) {
-        values.push(entry.answer);
+      var optionKey = clean(entry.optionKey).toUpperCase();
+      var rejectedValue = optionKey ? 'option:' + optionKey : entry.answer;
+      var rejectedKey = clean(rejectedValue).toLowerCase();
+      if (!values.some(function (value) { return clean(value).toLowerCase() === rejectedKey; })) {
+        values.push(rejectedValue);
         changed++;
       }
       examState.rejected[entry.key] = values.slice(-20);
     });
     return changed;
   }
-  function savePassedAnswers(submitted) {
+  function savePassedAnswers(submitted, submittedOptionKeys) {
+    submittedOptionKeys = submittedOptionKeys || {};
     return saveLearnedAnswers(Object.keys(submitted || {}).map(function (key) {
-      return { key: key, answer: submitted[key], correct: true };
+      return { key: key, answer: submitted[key], optionKey: submittedOptionKeys[key], correct: true };
     }));
   }
   function findResultNextAction() {
@@ -1250,7 +1306,7 @@
     var cwid = queryParam('cwid') || state.currentCwid;
     var exams = read(EXAM_KEY, {});
     var examState = exams[cwid] || { attempt: 0, submitted: {} };
-    var resultRecords = parseResultAnswers(examState.submitted);
+    var resultRecords = parseResultAnswers(examState.submitted, examState.submittedOptionKeys);
     var learnedCount = saveLearnedAnswers(resultRecords);
     var rejectedCount = saveRejectedAnswers(resultRecords, examState);
     if (/考试未通过|未通过/.test(text)) {
@@ -1261,7 +1317,12 @@
       }
       examState.attempt = rejectedCount ? 0 :
         (learnedCount ? 1 : Number(examState.attempt || 0) + 1);
-      resultRecords.forEach(function (entry) { if (entry.key && entry.answer) examState.submitted[entry.key] = entry.answer; });
+      resultRecords.forEach(function (entry) {
+        if (!entry.key || !entry.answer) return;
+        examState.submitted[entry.key] = entry.answer;
+        examState.submittedOptionKeys = examState.submittedOptionKeys || {};
+        if (entry.optionKey) examState.submittedOptionKeys[entry.key] = entry.optionKey;
+      });
       exams[cwid] = examState; write(EXAM_KEY, exams);
       setState({
         phase: 'result',
@@ -1273,7 +1334,7 @@
       return;
     }
     if (/考试通过|已通过|考试合格|完成项目学习可以申请学分/.test(text)) {
-      savePassedAnswers(examState.submitted);
+      savePassedAnswers(examState.submitted, examState.submittedOptionKeys);
       delete exams[cwid]; write(EXAM_KEY, exams);
       var nextAction = findResultNextAction();
       setState({ phase: 'course', message: nextAction ? '考试通过，进入下一课件' : '考试通过，返回项目继续' });
@@ -1969,7 +2030,7 @@
       saveRejectedAnswers: saveRejectedAnswers,
       findResultNextAction: findResultNextAction,
       verifiedAnswer: verifiedAnswer, scoreOption: scoreOption, chooseAnswers: chooseAnswers, answerCombinationCount: answerCombinationCount,
-      fixedAnswerSignature: fixedAnswerSignature,
+      fixedAnswerSignature: fixedAnswerSignature, optionIsRejected: optionIsRejected, knownExamOption: knownExamOption,
       enabled: enabled, normalize: normalize, findCaseAction: findCaseAction, caseVideoStatus: caseVideoStatus,
       playerMediaStatus: playerMediaStatus, findPlayerPrompt: findPlayerPrompt,
       needsTrustedPlayerClick: needsTrustedPlayerClick,
