@@ -316,6 +316,11 @@ test('真实验证题库按题干文本匹配', () => {
   assert.equal(api.verifiedAnswer('AD临床症状的ABC分类中，A代表的是？'), '日常生活能力受损');
   assert.equal(api.verifiedAnswer('诊断AD源性SCD的核心条件不包括？'), 'AD生物标志物阴性');
   assert.equal(api.verifiedAnswer('失读的病变部位主要是？'), '顶下小叶的缘上回和角回');
+  assert.equal(api.verifiedAnswer('以下关于 BPSD 的定义描述正确的是？'), '认知障碍患者经常出现的紊乱的感知觉、思维内容、心境和行为症状');
+  assert.equal(api.verifiedAnswer('单一出现时，需与颞叶癫痫或颞叶器质性损害鉴别的幻觉类型是？'), '幻嗅');
+  assert.equal(api.verifiedAnswer('在智能障碍基础上出现的与周围环境不协调的愉快体验，表情单调刻板的是？'), '欣快');
+  assert.equal(api.verifiedAnswer('以下哪项不是 BPSD 造成的不良后果？'), '减慢痴呆患者认知功能下降速度');
+  assert.equal(api.verifiedAnswer('以下不属于 AD 患者精神病性症状的是？'), '抑郁');
 });
 
 test('未知题使用确定性组合且每轮变化', () => {
