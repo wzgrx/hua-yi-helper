@@ -49,6 +49,15 @@ const {
     assert.equal(trusted.selector, '.pv-bad-network-tip span[type="change"]');
     assert.equal(trusted.text, '切换到流畅');
     assert.equal(await page.evaluate(() => window.__trustedClick), true);
+    await page.setContent(`<button class="pv-playpause pv-iconfont pv-icon-btn-play"></button>
+      <script>
+        document.querySelector('.pv-playpause').addEventListener('click', event => {
+          window.__trustedCasePlay = event.isTrusted;
+        }, true);
+      </script>`);
+    const trustedCasePlay = await clickTrustedPlayerAction(page);
+    assert.equal(trustedCasePlay.selector, '.pv-playpause.pv-icon-btn-play');
+    assert.equal(await page.evaluate(() => window.__trustedCasePlay), true);
     const playing = {
       url: 'https://cme28.91huayi.com/course_ware/course_ware_polyv.aspx?cwid=fixture',
       currentTime: 100,

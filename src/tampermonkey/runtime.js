@@ -170,9 +170,27 @@
     return 0;
   }
   function caseVideoStatus() {
+    var media = Array.from(document.querySelectorAll('video')).find(function (video) {
+      return visible(video) && isFinite(Number(video.duration)) && Number(video.duration) > 0;
+    });
+    if (media) {
+      var mediaCurrent = Math.max(0, Number(media.currentTime || 0));
+      var mediaDuration = Math.max(0, Number(media.duration || 0));
+      var mediaRemaining = Math.max(0, mediaDuration - mediaCurrent);
+      return {
+        active: mediaDuration > 0,
+        done: !!media.ended || (mediaDuration > 0 &&
+          (mediaCurrent >= mediaDuration - 2 || mediaCurrent / mediaDuration >= 0.985)),
+        current: mediaCurrent,
+        duration: mediaDuration,
+        remaining: mediaRemaining,
+        paused: !!media.paused,
+        media: media
+      };
+    }
     var text = pageText();
     var match = text.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*\/\s*(\d{1,2}:\d{2}(?::\d{2})?)/);
-    if (!match) return { active: false, done: false, current: 0, duration: 0, remaining: 0 };
+    if (!match) return { active: false, done: false, current: 0, duration: 0, remaining: 0, paused: false, media: null };
     var current = parseClock(match[1]);
     var duration = parseClock(match[2]);
     var remaining = Math.max(0, duration - current);
@@ -181,7 +199,9 @@
       done: duration > 0 && (current >= duration - 2 || current / duration >= 0.985),
       current: current,
       duration: duration,
-      remaining: remaining
+      remaining: remaining,
+      paused: false,
+      media: null
     };
   }
   function actionText(element) {
@@ -1831,8 +1851,20 @@
   }
 
   function findCaseAction() {
+    var quiz = parseCaseQuestion();
+    var quizAction = findCaseQuestionAction(quiz);
+    if (quizAction) return quizAction;
     var video = caseVideoStatus();
     if (video.active && !video.done) {
+      if (video.media && video.paused) {
+        var directPlay = Array.from(document.querySelectorAll(
+          '.pv-cover .pv-icon-btn-play,.pv-playpause.pv-icon-btn-play,.xgplayer-start,' +
+          '[class*="video"] [class*="play"],video'
+        )).find(function (element) {
+          return element === video.media || enabled(element);
+        });
+        if (directPlay) return { element: directPlay, text: '播放病例视频', kind: 'case-video-play' };
+      }
       var play = findSemanticActions(/^(播放|继续播放|开始播放)$/, /倍速|快进|全屏|音量|清晰|设置/, {
         maxText: 12,
         score: function (element) {
@@ -1855,6 +1887,123 @@
     return candidates[0] || null;
   }
 
+  function parseCaseQuestion() {
+    var questionNode = document.querySelector(
+      '.question-text,[class*="question-text"],[class*="question-title-text"],[data-question]'
+    );
+    var optionNodes = Array.from(document.querySelectorAll(
+      '.option-content,[class*="question-option"],[class*="option-item"],[class*="answer-option"]'
+    )).filter(function (element, index, all) {
+      if (!enabled(element)) return false;
+      var optionText = clean(element.innerText || element.textContent);
+      if (!optionText || !/^[A-Z][、.．)\s]/i.test(optionText)) return false;
+      return all.findIndex(function (other) {
+        return normalize(other.innerText || other.textContent) === normalize(optionText);
+      }) === index;
+    });
+    if (!questionNode || optionNodes.length < 2) return null;
+    var question = clean(questionNode.innerText || questionNode.textContent);
+    var options = optionNodes.map(function (element, optionIndex) {
+      var raw = clean(element.innerText || element.textContent);
+      var optionKey = clean((raw.match(/^([A-Z])[、.．)\s]*/i) || [])[1] ||
+        String.fromCharCode(65 + optionIndex)).toUpperCase();
+      return {
+        element: element,
+        optionKey: optionKey,
+        text: raw.replace(/^[A-Z][、.．)\s]*/i, '')
+      };
+    });
+    var text = pageText();
+    var reference = clean((text.match(/参考答案\s*[：:]\s*([A-Z])/i) || [])[1]).toUpperCase();
+    return {
+      question: question,
+      key: normalize(question).slice(0, 100),
+      options: options,
+      result: !!reference || /(?:回答)?正确[!！]?|(?:回答)?错误[!！]?/.test(text),
+      referenceOptionKey: reference,
+      submit: Array.from(document.querySelectorAll(
+        '.problem-page-right,.click-active,button,input[type="submit"],input[type="button"],[role="button"]'
+      )).find(function (element) {
+        return enabled(element) && /^提交$/.test(actionText(element));
+      }) || null
+    };
+  }
+
+  function caseOptionSelected(option) {
+    if (!option || !option.element) return false;
+    var element = option.element;
+    var nodes = [element, element.parentElement, element.querySelector('input')].filter(Boolean);
+    return nodes.some(function (node) {
+      var classes = classText(node);
+      return node.checked === true || node.getAttribute('aria-checked') === 'true' ||
+        /(^|\s)(?:active|selected|checked|is-checked|option-active)(?:\s|$)/i.test(classes);
+    });
+  }
+
+  function chooseCaseQuestionOption(quiz) {
+    if (!quiz || !quiz.options.length) return null;
+    var learned = read(ANSWER_KEY, {});
+    var learnedOptions = read(ANSWER_OPTION_KEY, {});
+    var choice = knownExamOption(
+      quiz,
+      learned[quiz.key] || verifiedAnswer(quiz.question),
+      learnedOptions[quiz.key] || verifiedOptionKey(quiz.question),
+      []
+    );
+    if (choice) return choice;
+    var matchingAnswers = quiz.options.filter(function (option) {
+      return VERIFIED.some(function (entry) {
+        var answer = normalize(entry[1]);
+        var optionText = normalize(option.text);
+        return answer.length >= 6 && (optionText.indexOf(answer) >= 0 || answer.indexOf(optionText) >= 0);
+      });
+    });
+    if (matchingAnswers.length === 1) return matchingAnswers[0];
+    return quiz.options.slice().sort(function (a, b) {
+      return scoreOption(quiz.question, b.text) - scoreOption(quiz.question, a.text);
+    })[0];
+  }
+
+  function learnCaseQuestionResult(quiz) {
+    if (!quiz || !quiz.result || !quiz.referenceOptionKey) return 0;
+    var correct = quiz.options.find(function (option) {
+      return option.optionKey === quiz.referenceOptionKey;
+    });
+    if (!correct) return 0;
+    return saveLearnedAnswers([{
+      key: quiz.key,
+      answer: correct.text,
+      optionKey: correct.optionKey,
+      correct: true
+    }]);
+  }
+
+  function findCaseQuestionAction(quiz) {
+    if (!quiz) return null;
+    if (quiz.result) {
+      learnCaseQuestionResult(quiz);
+      window.__HY8_CASE_SELECTION = null;
+      return null;
+    }
+    var selected = quiz.options.find(caseOptionSelected);
+    var memory = window.__HY8_CASE_SELECTION;
+    if (memory && memory.key !== quiz.key) memory = null;
+    if (selected || memory) {
+      if (quiz.submit) return { element: quiz.submit, text: '提交', kind: 'case-submit', quizKey: quiz.key };
+      return null;
+    }
+    var choice = chooseCaseQuestionOption(quiz);
+    if (!choice) return null;
+    return {
+      element: choice.element,
+      text: '选择答案：' + choice.optionKey,
+      kind: 'case-option',
+      quizKey: quiz.key,
+      optionKey: choice.optionKey,
+      optionText: choice.text
+    };
+  }
+
   function handleCase() {
     if (!state.running) return;
     var lastActionElement = null;
@@ -1869,6 +2018,23 @@
           lastActionAt = Date.now();
           log('[病例] 点击：' + action.text);
           humanClick(action.element);
+          if (action.kind === 'case-option') {
+            window.__HY8_CASE_SELECTION = {
+              key: action.quizKey,
+              optionKey: action.optionKey,
+              optionText: action.optionText,
+              at: Date.now()
+            };
+          }
+          if (action.kind === 'case-video-play') {
+            var media = caseVideoStatus().media;
+            if (media && media.paused && typeof media.play === 'function') {
+              try {
+                var playResult = media.play();
+                if (playResult && typeof playResult.catch === 'function') playResult.catch(function () {});
+              } catch (_) {}
+            }
+          }
         }
       } else {
         var video = caseVideoStatus();
@@ -2060,6 +2226,8 @@
       scoreOption: scoreOption, chooseAnswers: chooseAnswers, answerCombinationCount: answerCombinationCount,
       fixedAnswerSignature: fixedAnswerSignature, optionIsRejected: optionIsRejected, knownExamOption: knownExamOption,
       enabled: enabled, normalize: normalize, findCaseAction: findCaseAction, caseVideoStatus: caseVideoStatus,
+      parseCaseQuestion: parseCaseQuestion, chooseCaseQuestionOption: chooseCaseQuestionOption,
+      findCaseQuestionAction: findCaseQuestionAction, learnCaseQuestionResult: learnCaseQuestionResult,
       playerMediaStatus: playerMediaStatus, findPlayerPrompt: findPlayerPrompt,
       needsTrustedPlayerClick: needsTrustedPlayerClick,
       parseClassroomQuiz: parseClassroomQuiz, chooseClassroomOption: chooseClassroomOption

@@ -542,6 +542,65 @@ test('互动病例内嵌视频结束后允许点击下一页', () => {
   assert.equal(action.text, '下一页');
 });
 
+test('互动病例单选题先选答案再提交并识别站点验证答案', () => {
+  const page = boot(`<main>
+    <span class="question-text">2型糖尿病防治指南中，除血糖和糖化血红蛋白的达标外，理想血压是（）</span>
+    <div class="option-content"><span class="option-label">A. </span><span class="option-text">＜140/90mmHg</span></div>
+    <div class="option-content"><span class="option-label">B. </span><span class="option-text">＜130/80mmHg</span></div>
+    <div class="option-content"><span class="option-label">C. </span><span class="option-text">＜150/90mmHg</span></div>
+    <div class="problem-page-right click-active">提交</div>
+  </main>`, 'https://hdbl.91huayi.com/?x=1#/problem/question');
+  const quiz = page.api.parseCaseQuestion();
+  assert(quiz);
+  assert.equal(quiz.options.length, 3);
+  assert.equal(page.api.chooseCaseQuestionOption(quiz).optionKey, 'B');
+  const choose = page.api.findCaseQuestionAction(quiz);
+  assert.equal(choose.kind, 'case-option');
+  assert.equal(choose.optionKey, 'B');
+  page.window.__HY8_CASE_SELECTION = { key: quiz.key, optionKey: 'B', at: Date.now() };
+  const submit = page.api.findCaseQuestionAction(page.api.parseCaseQuestion());
+  assert.equal(submit.kind, 'case-submit');
+  assert.equal(submit.text, '提交');
+});
+
+test('互动病例结果页学习参考答案并继续下一页', () => {
+  const page = boot(`<main>
+    <span class="question-text">病例验证题</span>
+    <div class="option-content"><span>A. </span><span>答案甲</span></div>
+    <div class="option-content"><span>B. </span><span>答案乙</span></div>
+    <div>错误! 参考答案: B</div>
+    <div class="problem-page-right click-active">下一页</div>
+  </main>`, 'https://hdbl.91huayi.com/?x=1#/problem/question');
+  const quiz = page.api.parseCaseQuestion();
+  assert.equal(quiz.result, true);
+  assert.equal(quiz.referenceOptionKey, 'B');
+  assert.equal(page.api.learnCaseQuestionResult(quiz), 1);
+  assert.equal(page.values.get('HY8_ANSWERS')[quiz.key], '答案乙');
+  const action = page.api.findCaseAction();
+  assert(action);
+  assert.equal(action.text, '下一页');
+});
+
+test('互动病例原生视频暂停时优先播放而不是跳到下一页', () => {
+  const page = boot(`<main>
+    <video class="pv-video"></video>
+    <span class="pv-icon-btn-play"></span>
+    <div class="problem-page-right click-active">下一页</div>
+  </main>`, 'https://hdbl.91huayi.com/?x=1#/problem/view');
+  const media = page.window.document.querySelector('video');
+  Object.defineProperty(media, 'duration', { configurable: true, value: 253.48 });
+  Object.defineProperty(media, 'currentTime', { configurable: true, value: 0 });
+  Object.defineProperty(media, 'paused', { configurable: true, value: true });
+  Object.defineProperty(media, 'ended', { configurable: true, value: false });
+  const status = page.api.caseVideoStatus();
+  assert.equal(status.active, true);
+  assert.equal(status.paused, true);
+  const action = page.api.findCaseAction();
+  assert(action);
+  assert.equal(action.kind, 'case-video-play');
+  assert.equal(action.text, '播放病例视频');
+});
+
 test('新脚本启动时清理旧 HY7 面板并只保留 HY8 面板', () => {
   const { window } = boot('<div id=\"HY7_HOST\"></div><div id=\"HY7_HOST\"></div><main>内容</main>', 'https://hdbl.91huayi.com/?x=1#/home');
   const hosts = window.document.querySelectorAll('#HY8_HOST');

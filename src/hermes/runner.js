@@ -461,7 +461,10 @@ async function clickTrustedPlayerAction(page) {
   const selectors = [
     '.pv-bad-network-tip span[type="change"]',
     '.layer_tips .rig_btn',
-    '.study_diaog .btn_sign'
+    '.study_diaog .btn_sign',
+    '.pv-cover .pv-icon-btn-play',
+    '.pv-playpause.pv-icon-btn-play',
+    '.xgplayer-start'
   ];
   for (const selector of selectors) {
     const handle = await visibleHandle(page, selector, false);
@@ -669,7 +672,7 @@ async function runHermes(config, callbacks) {
         await page.goto(config.baseUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
       }
     }
-    if (/course_ware/i.test(page.url()) && Date.now() - lastTrustedActionAt > 800) {
+    if (/(?:course_ware|hdbl\.91huayi\.com)/i.test(page.url()) && Date.now() - lastTrustedActionAt > 800) {
       let trusted = null;
       try {
         trusted = await operationTimeout(clickTrustedPlayerAction(page), 10000, '播放器提示检测');
