@@ -37,7 +37,7 @@ const {
     const text = await page.$eval('#fixture', element => element.textContent);
     assert.equal(text, 'Win11 + Edge + Hermes');
     const version = await browser.version();
-    assert(/Chrome|Edge|HeadlessChrome/i.test(version));
+    assert(/(?:Chrome|Chromium|HeadlessChrome|Edge|Edg)\//i.test(version));
     await page.setContent(`<div class="pv-bad-network-tip">您的网络环境较差，可尝试
         <span type="change" role="button" tabindex="0">切换到流畅</span>
       </div>

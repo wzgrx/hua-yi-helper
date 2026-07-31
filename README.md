@@ -1,8 +1,8 @@
-# 华医网学习助手 v8.9.0
+# 华医网学习助手 v8.10.0
 
 [![CI](https://github.com/wzgrx/hua-yi-helper/actions/workflows/ci.yml/badge.svg)](https://github.com/wzgrx/hua-yi-helper/actions/workflows/ci.yml)
 
-面向华医网继续医学教育流程的跨端自动化实现。v8 将年度学分规划抽成共享核心，并由 Tampermonkey 与 Hermes/Puppeteer 共用：目标年度默认要求 **公需课 5 分**，再从**继续教育**和**全员专项**中选择课程补足**其他 20 分**。
+面向华医网继续医学教育流程的跨端自动化实现。v8 将年度学分规划抽成共享核心，并由 Tampermonkey 与 Hermes/Puppeteer 共用；OpenClaw 通过专用 Skill 和确定性桥接命令操作同一套 Hermes 监督器。目标年度默认要求 **公需课 5 分**，再从**继续教育**和**全员专项**中选择课程补足**其他 20 分**。
 
 ## v8 架构
 
@@ -11,6 +11,8 @@ flowchart LR
     P["年度策略：公需 5 + 其他 20"] --> C["共享规划核心"]
     C --> T["Tampermonkey 单文件"]
     C --> H["Hermes / Puppeteer"]
+    C --> A["OpenClaw Skill"]
+    A --> H
     H --> O["本机验证码 OCR"]
     O --> T
     T --> W["华医网页面状态机"]
@@ -27,6 +29,7 @@ flowchart LR
 - `src/hermes/`：Win11、WSL、Linux、macOS 浏览器发现和 Hermes/Puppeteer 运行器。
 - `src/hermes/captcha.js`：Sharp 多通道预处理、定宽分割和 Tesseract.js 数字共识识别。
 - `src/hermes/captcha-server.js`：仅监听 `127.0.0.1` 的 Tampermonkey OCR 桥。
+- `integrations/openclaw/hua-yi-helper/`：OpenClaw Skill、状态/启停桥与单实例保护。
 - `src/tampermonkey/hua-yi-helper.user.js`：生成后的直接安装文件。
 
 ## 年度智能规划
@@ -51,7 +54,7 @@ flowchart LR
 
 1. 安装 Tampermonkey。
 2. 打开 <https://raw.githubusercontent.com/wzgrx/hua-yi-helper/main/src/tampermonkey/hua-yi-helper.user.js>
-3. 确认版本为 `8.8.0`。
+3. 确认版本为 `8.10.0`。
 4. 登录华医网，打开学习记录页，点击“开始/继续”。
 
 脚本名称保留为“华医网学习助手 v6”，用于让已安装的旧脚本按同一身份原位升级；实际版本由 `@version` 标识。
@@ -83,7 +86,7 @@ npm install
 npm install
 $env:HUAYI_USERNAME = 'USERNAME'
 $env:HUAYI_PASSWORD = 'PASSWORD'
-.\bin\huayi-hermes.ps1 --year 2025
+.\bin\huayi-hermes.ps1 --year 2026
 ```
 
 运行器自动寻找 Edge 或 Chrome，默认使用独立资料目录 `.huayi-hermes/browser-profile`。常用参数：
@@ -91,7 +94,7 @@ $env:HUAYI_PASSWORD = 'PASSWORD'
 ```powershell
 .\bin\huayi-hermes.ps1 `
   --browser 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' `
-  --year 2025 --public-target 5 --other-target 20 `
+  --year 2026 --public-target 5 --other-target 20 `
   --captcha-auto true --captcha-max-attempts 6
 ```
 
@@ -119,6 +122,29 @@ Hermes 会在异常、运行超时或需要处理的页面状态下，把截图�
 .\bin\huayi-status.ps1 --data-dir .huayi-hermes --watch-seconds 5
 ```
 
+## OpenClaw（龙虾）
+
+本机安装 OpenClaw 后，将项目的专用 Skill 安装到 OpenClaw 托管目录：
+
+```powershell
+npm run openclaw:install
+openclaw skills info hua-yi-helper
+```
+
+Skill 通过同一个 Hermes 数据目录执行预检、单实例启动、状态读取和明确的停止操作。安装器会记录当前仓库路径；仓库升级或移动后再次运行安装命令即可刷新。检查安装一致性：
+
+```powershell
+npm run openclaw:check
+node "$HOME/.openclaw/skills/hua-yi-helper/scripts/bridge.js" check `
+  --data-dir 'C:\HuayiHermes2026'
+node "$HOME/.openclaw/skills/hua-yi-helper/scripts/bridge.js" status `
+  --data-dir 'C:\HuayiHermes2026'
+```
+
+启动前桥接器会检查该数据目录的监督锁和 PID，已运行时直接返回现有实例，避免 OpenClaw 与手工命令重复启动 Hermes。账号密码仍从 `HUAYI_USERNAME`、`HUAYI_PASSWORD` 读取，桥接状态只输出是否配置，不输出具体值。OpenClaw 只负责调度和读取结果，课程浏览器资料由 Hermes 独占。
+
+OpenClaw 的 Agent 对话层还需要其自身的模型登录；这与 Hermes 的华医账号相互独立。先用 `openclaw models list --provider openai` 检查 `Auth`，需要登录时在交互式终端执行 `openclaw models auth login --provider openai`。若 OpenClaw 默认网关端口已被本机其他程序占用，可先选一个空闲端口并执行 `openclaw config set gateway.port PORT`，再启动网关；Skill 的只读检查与桥接命令本身不依赖网关。
+
 ## Hermes：WSL
 
 Linux Chromium 可直接启动：
@@ -127,7 +153,7 @@ Linux Chromium 可直接启动：
 npm install
 export HUAYI_USERNAME='USERNAME'
 export HUAYI_PASSWORD='PASSWORD'
-./bin/huayi-hermes --year 2025
+./bin/huayi-hermes --year 2026
 ```
 
 WSL 会自动探测 `/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe` 等路径。若 Windows Edge 正在运行，推荐使用 DevTools 连接模式：
@@ -144,7 +170,7 @@ WSL 会自动探测 `/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedg
 export HUAYI_BROWSER_URL='http://127.0.0.1:9222'
 export HUAYI_USERNAME='USERNAME'
 export HUAYI_PASSWORD='PASSWORD'
-./bin/huayi-hermes --year 2025
+./bin/huayi-hermes --year 2026
 ```
 
 ## 状态机覆盖
@@ -189,6 +215,7 @@ npm run test:login
 - 独立临时浏览器资料目录中的真实全自动登录（通过环境变量启用）；
 - 登录、证书确认、培训卡、课件、考试验证码与结果页组成的实站状态机；
 - Puppeteer 真实浏览器烟雾测试；
+- OpenClaw Skill 安装一致性、状态桥接、凭据脱敏和重复启动保护；
 - 华医网在线登录页 HTTP/DOM 布局测试（`npm run test:live`，不提交表单）；
 - 全源码语法、版本一致性、密钥泄露和回归约束。
 

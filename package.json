@@ -1,13 +1,15 @@
 {
   "name": "hua-yi-helper",
-  "version": "8.9.0",
-  "description": "华医网学习助手 v8.9.0 - Tampermonkey、Hermes、WSL 与 Win11 跨端年度 5+20 智能规划",
+  "version": "8.10.0",
+  "description": "华医网学习助手 v8.10.0 - Tampermonkey、Hermes、OpenClaw、WSL 与 Win11 跨端年度 5+20 智能规划",
   "scripts": {
-    "test": "npm run build && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/captcha.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-supervisor.js && node tests/hermes-status.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
+    "test": "npm run build && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/captcha.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-supervisor.js && node tests/hermes-status.js && node tests/openclaw-integration.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
     "build": "node scripts/build-userscript.js",
     "hermes": "node src/hermes/cli.js",
     "captcha": "node src/hermes/captcha-cli.js",
     "status": "node src/hermes/status-cli.js",
+    "openclaw:install": "node scripts/install-openclaw-skill.js",
+    "openclaw:check": "node scripts/install-openclaw-skill.js --check",
     "test:live": "node tests/live-login.js",
     "test:ocr": "node tests/live-captcha-ocr.js",
     "test:login": "node tests/live-auto-login.js",
