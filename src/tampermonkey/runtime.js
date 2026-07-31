@@ -1354,6 +1354,13 @@
       return enabled(element) && /立即学习|下一课|继续学习/.test(actionText(element));
     }) || null;
   }
+  function isInteractiveCompletionResult(text, examState) {
+    var body = clean(text);
+    var submitted = examState && examState.submitted || {};
+    return /exam_result_hd\.aspx$/i.test(location.pathname) &&
+      !Object.keys(submitted).length &&
+      !/考试未通过|考试通过|已通过|考试合格/.test(body);
+  }
   function handleResult(retry) {
     retry = Number(retry || 0);
     if (!state.running) return;
@@ -1361,6 +1368,15 @@
     var cwid = queryParam('cwid') || state.currentCwid;
     var exams = read(EXAM_KEY, {});
     var examState = exams[cwid] || { attempt: 0, submitted: {} };
+    if (isInteractiveCompletionResult(text, examState)) {
+      setState({ phase: 'result', message: '互动病例完成，等待问卷或学分页' });
+      if (retry < 40) {
+        setTimeout(function () { if (route() === 'result') handleResult(retry + 1); }, 500);
+      } else {
+        navigate(state.currentCourseUrl || '/pages/study_info_list.aspx');
+      }
+      return;
+    }
     var resultRecords = parseResultAnswers(examState.submitted, examState.submittedOptionKeys);
     var learnedCount = saveLearnedAnswers(resultRecords);
     var rejectedCount = saveRejectedAnswers(resultRecords, examState);
@@ -1779,11 +1795,25 @@
   function handleSurvey() {
     if (!state.running) return;
     var form = document.querySelector('form') || document.body;
+    var securityPopup = document.querySelector('#aliyunCaptcha-window-popup');
+    if (securityPopup && enabled(securityPopup) &&
+        /点击开始智能验证|请完成安全验证/.test(clean(securityPopup.textContent))) {
+      setState({ phase: 'survey', message: '等待浏览器完成问卷安全验证' });
+      return;
+    }
     var resume = Array.from(document.querySelectorAll(
       '.layui-layer-btn0,.ui-dialog-button button,.el-message-box__btns button,[role="dialog"] button'
     )).find(function (element) {
       return enabled(element) && /确认|继续|恢复/.test(clean(element.value || element.textContent));
     });
+    if (resume && /需要安全校验|重新提交/.test(pageText())) {
+      setState({ phase: 'survey', message: '确认问卷安全校验并重新提交' });
+      humanClick(resume);
+      setTimeout(function () {
+        if (route() === 'survey' && state.running) handleSurvey();
+      }, 700);
+      return;
+    }
     if (resume && /之前已经回答|继续上次|恢复.*答/.test(pageText())) {
       setState({ phase: 'survey', message: '正在恢复已保存的问卷进度' });
       humanClick(resume);
@@ -2229,7 +2259,7 @@
       selectStudyYear: selectStudyYear,
       parseExam: parseExam, parseResultAnswers: parseResultAnswers, saveLearnedAnswers: saveLearnedAnswers,
       saveRejectedAnswers: saveRejectedAnswers,
-      findResultNextAction: findResultNextAction,
+      findResultNextAction: findResultNextAction, isInteractiveCompletionResult: isInteractiveCompletionResult,
       verifiedAnswer: verifiedAnswer, verifiedOptionKey: verifiedOptionKey,
       scoreOption: scoreOption, chooseAnswers: chooseAnswers, answerCombinationCount: answerCombinationCount,
       fixedAnswerSignature: fixedAnswerSignature, optionIsRejected: optionIsRejected, knownExamOption: knownExamOption,

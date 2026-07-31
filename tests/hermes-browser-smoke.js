@@ -9,6 +9,7 @@ const { resolveBrowser } = require('../src/hermes/config');
 const {
   closeRuntimeResources,
   clickTrustedPlayerAction,
+  clickTrustedSurveyAction,
   operationTimeout,
   updatePlayerWatch
 } = require('../src/hermes/runner');
@@ -63,6 +64,15 @@ const {
     const trustedCasePlay = await clickTrustedPlayerAction(page);
     assert.equal(trustedCasePlay.selector, '.pv-playpause.pv-icon-btn-play');
     assert.equal(await page.evaluate(() => window.__trustedCasePlay), true);
+    await page.setContent(`<div id="aliyunCaptcha-checkbox-icon">验证</div>
+      <script>
+        document.querySelector('#aliyunCaptcha-checkbox-icon').addEventListener('click', event => {
+          window.__trustedSurveyCheck = event.isTrusted;
+        }, true);
+      </script>`);
+    const trustedSurvey = await clickTrustedSurveyAction(page);
+    assert.equal(trustedSurvey.selector, '#aliyunCaptcha-checkbox-icon');
+    assert.equal(await page.evaluate(() => window.__trustedSurveyCheck), true);
     const playing = {
       url: 'https://cme28.91huayi.com/course_ware/course_ware_polyv.aspx?cwid=fixture',
       currentTime: 100,

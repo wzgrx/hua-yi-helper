@@ -150,6 +150,32 @@ test('问卷恢复弹窗、隐藏选项、滑块必填和 div 提交入口', () 
   assert.match(survey.values.get('HY8_STATE').message, /正在提交/);
 });
 
+test('问卷安全校验确认后重新提交并等待智能验证', () => {
+  const retry = boot(`<form>
+    <input type="radio" name="q1" value="1" checked>
+    <div id="ctlNext" class="submitbtn">提交</div>
+    <a class="layui-layer-btn0">确认</a>
+  </form><div>需要安全校验，请重新提交！</div>`, 'https://dcwj.91huayi.com/vm/fixture.aspx', {
+    HY8_STATE: { running: true, paused: false, phase: 'survey' }
+  });
+  let confirmed = 0;
+  retry.window.document.querySelector('.layui-layer-btn0').addEventListener('click', event => {
+    confirmed++;
+    event.currentTarget.remove();
+  });
+  retry.api.handleSurvey();
+  assert.equal(confirmed, 1);
+  assert.match(retry.values.get('HY8_STATE').message, /重新提交/);
+
+  const captcha = boot(`<form><div id="ctlNext" class="submitbtn">提交</div></form>
+    <div id="aliyunCaptcha-window-popup">请完成安全验证 点击开始智能验证</div>`,
+  'https://dcwj.91huayi.com/vm/fixture.aspx', {
+    HY8_STATE: { running: true, paused: false, phase: 'survey' }
+  });
+  captcha.api.handleSurvey();
+  assert.match(captcha.values.get('HY8_STATE').message, /浏览器完成问卷安全验证/);
+});
+
 test('考试异常验证码页识别最新输入框、图片与提交按钮', () => {
   const { api } = boot(`<form>
     <img id="imgCheckCode" class="yzm_img" src="/secure/CheckCode.aspx?id=1">
@@ -508,6 +534,16 @@ test('考试通过结果页识别新版立即学习入口', () => {
   const next = api.findResultNextAction();
   assert(next);
   assert.equal(next.value, '立即学习');
+});
+
+test('互动病例完成回跳页等待问卷而不是按普通考试结果停止', () => {
+  const { api } = boot('<main>互动病例学习记录处理中</main>',
+    'https://cme28.91huayi.com/pages/exam_result_hd.aspx', {
+      HY8_STATE: { running: false, currentCwid: 'interactive-one' }
+    });
+  assert.equal(api.isInteractiveCompletionResult('互动病例学习记录处理中', { submitted: {} }), true);
+  assert.equal(api.isInteractiveCompletionResult('考试通过', { submitted: {} }), false);
+  assert.equal(api.isInteractiveCompletionResult('处理中', { submitted: { q: 'A' } }), false);
 });
 
 test('互动病例能识别普通 div/span 可点击动作', () => {

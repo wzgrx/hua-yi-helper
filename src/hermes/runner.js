@@ -492,6 +492,30 @@ async function clickTrustedPlayerAction(page) {
   return null;
 }
 
+async function clickTrustedSurveyAction(page) {
+  const selectors = [
+    '#aliyunCaptcha-checkbox-icon',
+    '#aliyunCaptcha-checkbox-body',
+    '.layui-layer-btn0'
+  ];
+  for (const selector of selectors) {
+    const handle = await visibleHandle(page, selector, false);
+    if (!handle) continue;
+    if (selector === '.layui-layer-btn0') {
+      const securityRetry = await handle.evaluate(() =>
+        /需要安全校验|重新提交/.test(String(document.body && document.body.innerText || ''))
+      ).catch(() => false);
+      if (!securityRetry) continue;
+    }
+    const text = await handle.evaluate(element =>
+      String(element.value || element.innerText || element.textContent || '').trim()
+    ).catch(() => '');
+    await handle.click({ delay: 85 });
+    return { selector, text };
+  }
+  return null;
+}
+
 async function readPlayerMediaState(page) {
   return page.evaluate(() => {
     const video = document.querySelector('video');
@@ -705,6 +729,25 @@ async function runHermes(config, callbacks) {
         lastTrustedActionAt = Date.now();
       }
     }
+    if (/dcwj\.91huayi\.com/i.test(page.url()) && Date.now() - lastTrustedActionAt > 800) {
+      let trusted = null;
+      try {
+        trusted = await operationTimeout(clickTrustedSurveyAction(page), 10000, '问卷安全校验检测');
+      } catch (error) {
+        if (error && error.code === 'HERMES_OPERATION_TIMEOUT') throw error;
+      }
+      if (trusted) {
+        const trustedSignature = `${page.url()}|${trusted.selector}|${trusted.text}`;
+        if (trustedSignature !== lastTrustedSignature || Date.now() - lastTrustedActionAt > 4000) {
+          report({
+            type: 'trusted_click',
+            message: `已用浏览器原生输入处理问卷安全校验：${trusted.text || trusted.selector}`
+          });
+        }
+        lastTrustedSignature = trustedSignature;
+        lastTrustedActionAt = Date.now();
+      }
+    }
     if (/course_ware/i.test(page.url())) {
       let media = null;
       try {
@@ -779,6 +822,7 @@ module.exports = {
   readState,
   operationTimeout,
   clickTrustedPlayerAction,
+  clickTrustedSurveyAction,
   readPlayerMediaState,
   updatePlayerWatch,
   processExists,
