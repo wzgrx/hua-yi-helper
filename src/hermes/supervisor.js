@@ -151,6 +151,15 @@ function delay(ms, signal) {
   });
 }
 
+function restartDelayFor(config, error) {
+  const configured = Math.max(0, Number(config && config.restartDelayMs || 0));
+  const message = String(error && (error.stack || error.message) || error || '');
+  if (/页面状态读取超过|页面操作超过|Protocol error|Target closed|Session closed|Navigation timeout/i.test(message)) {
+    return Math.min(configured, 5000);
+  }
+  return configured;
+}
+
 async function superviseHermes(config, callbacks, dependencies) {
   const settings = dependencies || {};
   const run = settings.runHermes || runHermes;
@@ -192,6 +201,7 @@ async function superviseHermes(config, callbacks, dependencies) {
     awake = startKeepAwake(config.keepAwake, event => publish(event));
     const maxAttempts = Math.max(1, Number(config.restartLimit || 0) + 1);
     while (attempt < maxAttempts && !(config.signal && config.signal.aborted)) {
+      let attemptError = null;
       attempt++;
       finalStatus = attempt === 1 ? 'running' : 'restarting';
       publish({
@@ -216,6 +226,7 @@ async function superviseHermes(config, callbacks, dependencies) {
         }, { status: finalStatus });
         if (finalStatus === 'done' || finalStatus === 'stopped') return result;
       } catch (error) {
+        attemptError = error;
         finalStatus = 'error';
         publish({
           type: 'error',
@@ -224,12 +235,13 @@ async function superviseHermes(config, callbacks, dependencies) {
         }, { status: finalStatus });
       }
       if (attempt < maxAttempts && !(config.signal && config.signal.aborted)) {
+        const restartDelayMs = restartDelayFor(config, attemptError);
         finalStatus = 'waiting_restart';
         publish({
           type: 'restart_wait',
-          message: `${config.restartDelayMs}ms 后重启`
+          message: `${restartDelayMs}ms 后重启`
         }, { status: finalStatus });
-        await sleep(config.restartDelayMs, config.signal);
+        await sleep(restartDelayMs, config.signal);
       }
     }
     finalStatus = config.signal && config.signal.aborted ? 'stopped' : 'restart_limit';
@@ -254,5 +266,6 @@ module.exports = {
   buildKeepAwakeScript,
   startKeepAwake,
   delay,
+  restartDelayFor,
   superviseHermes
 };

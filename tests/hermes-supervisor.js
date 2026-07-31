@@ -9,6 +9,7 @@ const {
   acquireLock,
   buildKeepAwakeScript,
   startKeepAwake,
+  restartDelayFor,
   superviseHermes
 } = require('../src/hermes/supervisor');
 const { closeRuntimeResources } = require('../src/hermes/runner');
@@ -43,6 +44,9 @@ const { closeRuntimeResources } = require('../src/hermes/runner');
       awake.close();
       assert.equal(awake.isRunning(), false);
     }
+    assert.equal(restartDelayFor({ restartDelayMs: 60000 }, new Error('页面状态读取超过 10000ms 无响应')), 5000);
+    assert.equal(restartDelayFor({ restartDelayMs: 60000 }, new Error('fixture transient error')), 60000);
+    assert.equal(restartDelayFor({ restartDelayMs: 1000 }, new Error('Protocol error: Target closed')), 1000);
 
     let runs = 0;
     let delays = 0;
