@@ -469,6 +469,20 @@ async function clickTrustedPlayerAction(page) {
   for (const selector of selectors) {
     const handle = await visibleHandle(page, selector, false);
     if (!handle) continue;
+    if (/play|xgplayer-start/i.test(selector)) {
+      const completed = await page.evaluate(() => {
+        const video = document.querySelector('video');
+        const marker = window.__HY8_CASE_VIDEO_DONE;
+        const remembered = marker && marker.key === location.href &&
+          Date.now() - Number(marker.at || 0) < 120000;
+        return Boolean(remembered || (video && (
+          video.ended ||
+          (Number(video.duration || 0) > 0 &&
+            Number(video.currentTime || 0) >= Number(video.duration || 0) - 0.25)
+        )));
+      }).catch(() => false);
+      if (completed) continue;
+    }
     const text = await handle.evaluate(element =>
       String(element.value || element.innerText || element.textContent || '').trim()
     ).catch(() => '');

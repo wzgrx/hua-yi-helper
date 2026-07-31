@@ -177,10 +177,18 @@
       var mediaCurrent = Math.max(0, Number(media.currentTime || 0));
       var mediaDuration = Math.max(0, Number(media.duration || 0));
       var mediaRemaining = Math.max(0, mediaDuration - mediaCurrent);
+      var mediaKey = location.href;
+      var finishedNow = !!media.ended || (mediaDuration > 0 && mediaCurrent >= mediaDuration - 0.25);
+      var completed = window.__HY8_CASE_VIDEO_DONE;
+      if (finishedNow) {
+        completed = { key: mediaKey, at: Date.now() };
+        window.__HY8_CASE_VIDEO_DONE = completed;
+      }
+      var recentlyCompleted = !!(completed && completed.key === mediaKey &&
+        Date.now() - Number(completed.at || 0) < 120000);
       return {
         active: mediaDuration > 0,
-        done: !!media.ended || (mediaDuration > 0 &&
-          (mediaCurrent >= mediaDuration - 2 || mediaCurrent / mediaDuration >= 0.985)),
+        done: finishedNow || recentlyCompleted,
         current: mediaCurrent,
         duration: mediaDuration,
         remaining: mediaRemaining,
@@ -196,7 +204,7 @@
     var remaining = Math.max(0, duration - current);
     return {
       active: duration > 0,
-      done: duration > 0 && (current >= duration - 2 || current / duration >= 0.985),
+      done: duration > 0 && current >= duration - 0.25,
       current: current,
       duration: duration,
       remaining: remaining,

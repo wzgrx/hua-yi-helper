@@ -601,6 +601,25 @@ test('互动病例原生视频暂停时优先播放而不是跳到下一页', ()
   assert.equal(action.text, '播放病例视频');
 });
 
+test('互动病例视频结束后保留完成记忆避免被播放器自动重播', () => {
+  const page = boot(`<main>
+    <video class="pv-video"></video>
+    <span class="pv-icon-btn-play"></span>
+    <div class="problem-page-right click-active">下一页</div>
+  </main>`, 'https://hdbl.91huayi.com/?x=1#/problem/view?catalogId=finished');
+  const media = page.window.document.querySelector('video');
+  Object.defineProperty(media, 'duration', { configurable: true, value: 201.62 });
+  Object.defineProperty(media, 'currentTime', { configurable: true, writable: true, value: 201.60 });
+  Object.defineProperty(media, 'paused', { configurable: true, value: true });
+  Object.defineProperty(media, 'ended', { configurable: true, value: false });
+  assert.equal(page.api.caseVideoStatus().done, true);
+  media.currentTime = 0;
+  assert.equal(page.api.caseVideoStatus().done, true);
+  const action = page.api.findCaseAction();
+  assert(action);
+  assert.equal(action.text, '下一页');
+});
+
 test('新脚本启动时清理旧 HY7 面板并只保留 HY8 面板', () => {
   const { window } = boot('<div id=\"HY7_HOST\"></div><div id=\"HY7_HOST\"></div><main>内容</main>', 'https://hdbl.91huayi.com/?x=1#/home');
   const hosts = window.document.querySelectorAll('#HY8_HOST');

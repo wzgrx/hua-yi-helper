@@ -55,6 +55,11 @@ const {
           window.__trustedCasePlay = event.isTrusted;
         }, true);
       </script>`);
+    await page.evaluate(() => {
+      window.__HY8_CASE_VIDEO_DONE = { key: location.href, at: Date.now() };
+    });
+    assert.equal(await clickTrustedPlayerAction(page), null);
+    await page.evaluate(() => { delete window.__HY8_CASE_VIDEO_DONE; });
     const trustedCasePlay = await clickTrustedPlayerAction(page);
     assert.equal(trustedCasePlay.selector, '.pv-playpause.pv-icon-btn-play');
     assert.equal(await page.evaluate(() => window.__trustedCasePlay), true);
