@@ -1523,6 +1523,9 @@
     var availableCount = usableCardCount(text);
     if (availableCount === 0 ||
         (availableCount == null && /这里空空的|暂无.*培训卡/.test(text))) return { type: 'empty' };
+    if (/培训卡余额不足|余额不足.*培训卡|所选.*培训卡.*不足/.test(text)) {
+      return { type: 'insufficient' };
+    }
     var modalAction = Array.from(document.querySelectorAll(
       '#confirmBtnSecondary,#confirmModalBg button,.confirm-modal button'
     )).find(function (element) {
@@ -1533,8 +1536,9 @@
     var uncheckedCombination = Array.from(document.querySelectorAll(
       '.combination-card:not(.disabled) input[type="checkbox"]:not([disabled]):not(:checked)'
     )).find(enabled);
-    if (modernSubmit && enabled(modernSubmit) && nativeCardSelectionReady()) {
-      return { type: 'submit', element: modernSubmit };
+    if (modernSubmit && enabled(modernSubmit)) {
+      if (nativeCardSelectionReady()) return { type: 'submit', element: modernSubmit };
+      if (!uncheckedCombination) return { type: 'insufficient' };
     }
     if (uncheckedCombination) return { type: 'select', element: uncheckedCombination };
     var radios = Array.from(document.querySelectorAll('input[type="radio"]:not([disabled])')).filter(enabled);
@@ -1544,7 +1548,8 @@
       maxText: 18,
       selectors: 'button,input[type="button"],input[type="submit"],a[href],[role="button"]'
     })[0];
-    if ((selectedRadio || document.querySelector('input[type="checkbox"]:checked')) && legacySubmit) {
+    if ((selectedRadio || document.querySelector('input[type="checkbox"]:checked')) && legacySubmit &&
+        legacySubmit.element !== modernSubmit) {
       return { type: 'submit', element: legacySubmit.element };
     }
     return { type: 'attention' };
@@ -1558,7 +1563,7 @@
       setTimeout(function () { if (state.running && route() === 'card') handleCard(retry + 1); }, 500);
       return;
     }
-    if (action.type === 'empty') {
+    if (action.type === 'empty' || action.type === 'insufficient') {
       var blocked = Array.isArray(state.blockedApplications) ? state.blockedApplications.slice() : [];
       if (state.currentCourseUrl && blocked.indexOf(state.currentCourseUrl) < 0) blocked.push(state.currentCourseUrl);
       setState({
@@ -1566,7 +1571,9 @@
         blockedApplicationYear: Number(policy.year),
         blockedApplicationRetryAt: Date.now() + CARD_RETRY_MS,
         phase: 'study',
-        message: '当前课程暂无可用培训卡，先继续其他年度任务'
+        message: action.type === 'insufficient' ?
+          '可用培训卡余额不足当前课程，等待补充后自动复查' :
+          '当前课程暂无可用培训卡，先继续其他年度任务'
       });
       setTimeout(function () {
         if (state.running) navigate('/pages/study_info_list.aspx');

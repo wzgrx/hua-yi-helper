@@ -251,6 +251,21 @@ test('新版培训卡页等待异步数据并提交站点推荐组合', () => {
   assert.equal(recommended.api.usableCardCount(recommended.window.document.body.textContent), 2);
   assert.equal(recommended.api.findCardAction().type, 'submit');
 
+  const insufficient = boot(`<span>可用培训卡(1)</span><span>不可用培训卡(2)</span>
+    <div class="combination-card selected"><input type="checkbox" checked></div>
+    <button id="submitBtn">确认使用</button>`,
+  'https://cme28.91huayi.com/pages/card_select.aspx?from=2&cid=x');
+  insufficient.window.selectedCombinations = [{ combinationType: 'SCORE', deductionAmount: 1 }];
+  insufficient.window.isScoreEnough = () => false;
+  assert.equal(insufficient.api.nativeCardSelectionReady(), false);
+  assert.equal(insufficient.api.findCardAction().type, 'insufficient');
+
+  const rejected = boot(`<span>可用培训卡(1)</span>
+    <div class="combination-card selected"><input type="checkbox" checked></div>
+    <button id="submitBtn">确认使用</button><div>您选择的培训卡余额不足，请重新选择</div>`,
+  'https://cme28.91huayi.com/pages/card_select.aspx?from=2&cid=x');
+  assert.equal(rejected.api.findCardAction().type, 'insufficient');
+
   const choice = boot(`<div class="combination-card"><input type="checkbox"></div>
     <button id="submitBtn" disabled>确认使用</button>`,
   'https://cme28.91huayi.com/pages/card_select.aspx?from=2&cid=x');
