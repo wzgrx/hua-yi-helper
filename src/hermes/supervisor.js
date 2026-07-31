@@ -26,9 +26,99 @@ function atomicWriteJson(file, value) {
   }
 }
 
-function appendEvent(file, event) {
+const DEFAULT_EVENT_LOG_MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_EVENT_LOG_BACKUPS = 3;
+
+function compactStateForEvent(state) {
+  if (!state || typeof state !== 'object') return state;
+  const result = {};
+  [
+    'running',
+    'paused',
+    'phase',
+    'message',
+    'credit',
+    'publicEarned',
+    'otherEarned',
+    'publicProjected',
+    'otherProjected',
+    'currentCourseUrl',
+    'currentCourseName',
+    'currentCwid',
+    'lastRoute',
+    'lastActionAt',
+    'blockedApplicationYear',
+    'blockedApplicationRetryAt',
+    'catalogYear'
+  ].forEach(key => {
+    if (state[key] !== undefined) result[key] = state[key];
+  });
+  [
+    ['blockedApplications', 'blockedApplicationCount'],
+    ['cardRetryQueue', 'cardRetryQueueCount'],
+    ['catalogVisited', 'catalogVisitedCount'],
+    ['catalogSourcesVisited', 'catalogSourceCount'],
+    ['studyRecords', 'studyRecordCount'],
+    ['catalogRecords', 'catalogRecordCount'],
+    ['planTasks', 'planTaskCount']
+  ].forEach(([source, target]) => {
+    if (Array.isArray(state[source])) result[target] = state[source].length;
+  });
+  if (Array.isArray(state.logs) && state.logs.length) result.logTail = state.logs.slice(-2);
+  return result;
+}
+
+function compactEventEnvelope(event) {
+  const compact = Object.assign({}, event);
+  if (event && event.state) compact.state = compactStateForEvent(event.state);
+  if (Array.isArray(compact.tasks)) {
+    compact.tasks = compact.tasks.map(task => ({
+      type: task && task.type,
+      name: task && task.name,
+      credit: task && task.credit,
+      category: task && task.category
+    }));
+  }
+  return compact;
+}
+
+function rotateEventLog(file, backups) {
+  const count = Math.max(0, Math.floor(Number(backups) || 0));
+  if (!fs.existsSync(file)) return;
+  if (count === 0) {
+    fs.rmSync(file, { force: true });
+    return;
+  }
+  for (let index = count; index >= 2; index--) {
+    const destination = `${file}.${index}`;
+    const source = `${file}.${index - 1}`;
+    fs.rmSync(destination, { force: true });
+    if (fs.existsSync(source)) fs.renameSync(source, destination);
+  }
+  fs.rmSync(`${file}.1`, { force: true });
+  fs.renameSync(file, `${file}.1`);
+}
+
+function appendEvent(file, event, options) {
   ensureParent(file);
-  fs.appendFileSync(file, `${JSON.stringify(event)}\n`, 'utf8');
+  const settings = options || {};
+  const configuredMax = Number(settings.maxBytes);
+  const maxBytes = Number.isFinite(configuredMax) && configuredMax > 0 ?
+    Math.floor(configuredMax) : DEFAULT_EVENT_LOG_MAX_BYTES;
+  const configuredBackups = Number(settings.backups);
+  const backups = Number.isFinite(configuredBackups) && configuredBackups >= 0 ?
+    Math.floor(configuredBackups) : DEFAULT_EVENT_LOG_BACKUPS;
+  const line = `${JSON.stringify(event)}\n`;
+  let currentBytes = 0;
+  try {
+    currentBytes = fs.statSync(file).size;
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  if (currentBytes > 0 && currentBytes + Buffer.byteLength(line, 'utf8') > maxBytes) {
+    rotateEventLog(file, backups);
+  }
+  fs.appendFileSync(file, line, 'utf8');
 }
 
 function readLock(file) {
@@ -183,7 +273,10 @@ async function superviseHermes(config, callbacks, dependencies) {
       state: event.state || undefined,
       tasks: event.tasks || undefined
     }, extra || {});
-    appendEvent(config.eventLogFile, envelope);
+    appendEvent(config.eventLogFile, compactEventEnvelope(envelope), {
+      maxBytes: config.eventLogMaxBytes,
+      backups: config.eventLogBackups
+    });
     atomicWriteJson(config.statusFile, {
       pid: process.pid,
       startedAt,
@@ -261,6 +354,9 @@ async function superviseHermes(config, callbacks, dependencies) {
 module.exports = {
   atomicWriteJson,
   appendEvent,
+  compactStateForEvent,
+  compactEventEnvelope,
+  rotateEventLog,
   readLock,
   acquireLock,
   buildKeepAwakeScript,

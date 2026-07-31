@@ -68,12 +68,16 @@ const supervised = loadConfig([
   '--supervise', 'true',
   '--restart-limit', '9',
   '--restart-delay-ms', '1234',
+  '--event-log-max-bytes', '131072',
+  '--event-log-backups', '5',
   '--card-retry-minutes', '3',
   '--keep-awake', 'false'
 ], {});
 assert.equal(supervised.supervise, true);
 assert.equal(supervised.restartLimit, 9);
 assert.equal(supervised.restartDelayMs, 1234);
+assert.equal(supervised.eventLogMaxBytes, 131072);
+assert.equal(supervised.eventLogBackups, 5);
 assert.equal(supervised.keepAwake, false);
 assert.equal(supervised.statusFile, path.join(temp, 'supervised', 'status.json'));
 assert.equal(supervised.eventLogFile, path.join(temp, 'supervised', 'events.ndjson'));
@@ -87,6 +91,8 @@ const noRestart = loadConfig([
 ], {});
 assert.equal(noRestart.restartLimit, 0);
 assert.equal(noRestart.restartDelayMs, 0);
+assert.equal(noRestart.eventLogMaxBytes, 10 * 1024 * 1024);
+assert.equal(noRestart.eventLogBackups, 3);
 fs.rmSync(temp, { recursive: true, force: true });
 
 console.log('Hermes Win11/WSL 配置测试通过');

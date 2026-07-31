@@ -88,6 +88,17 @@ function loadConfig(argv, environment) {
     args.supervise !== undefined ? args.supervise : env.HUAYI_SUPERVISE,
     false
   );
+  const requestedEventLogMaxBytes = Number(
+    args['event-log-max-bytes'] || env.HUAYI_EVENT_LOG_MAX_BYTES || 10 * 1024 * 1024
+  );
+  const eventLogMaxBytes = Number.isFinite(requestedEventLogMaxBytes) ?
+    Math.max(64 * 1024, Math.floor(requestedEventLogMaxBytes)) : 10 * 1024 * 1024;
+  const requestedEventLogBackups = Number(
+    args['event-log-backups'] !== undefined ? args['event-log-backups'] :
+      (env.HUAYI_EVENT_LOG_BACKUPS !== undefined ? env.HUAYI_EVENT_LOG_BACKUPS : 3)
+  );
+  const eventLogBackups = Number.isFinite(requestedEventLogBackups) ?
+    Math.min(20, Math.max(0, Math.floor(requestedEventLogBackups))) : 3;
   return {
     browserPath: browserUrl ? '' : resolveBrowser(args.browser || env.HUAYI_BROWSER, { environment: env }),
     browserUrl,
@@ -126,6 +137,8 @@ function loadConfig(argv, environment) {
     )),
     statusFile: path.resolve(args['status-file'] || env.HUAYI_STATUS_FILE || path.join(workspace, 'status.json')),
     eventLogFile: path.resolve(args['event-log-file'] || env.HUAYI_EVENT_LOG_FILE || path.join(workspace, 'events.ndjson')),
+    eventLogMaxBytes,
+    eventLogBackups,
     lockFile: path.resolve(args['lock-file'] || env.HUAYI_LOCK_FILE || path.join(workspace, 'supervisor.lock')),
     keepAwake: parseBoolean(
       args['keep-awake'] !== undefined ? args['keep-awake'] : env.HUAYI_KEEP_AWAKE,
@@ -152,6 +165,8 @@ function publicConfig(config) {
     restartDelayMs: config.restartDelayMs,
     statusFile: config.statusFile,
     eventLogFile: config.eventLogFile,
+    eventLogMaxBytes: config.eventLogMaxBytes,
+    eventLogBackups: config.eventLogBackups,
     lockFile: config.lockFile,
     keepAwake: config.keepAwake,
     policy: config.policy,

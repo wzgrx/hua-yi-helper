@@ -6,6 +6,9 @@ const os = require('os');
 const path = require('path');
 const {
   atomicWriteJson,
+  appendEvent,
+  compactStateForEvent,
+  compactEventEnvelope,
   acquireLock,
   buildKeepAwakeScript,
   startKeepAwake,
@@ -48,6 +51,39 @@ const { closeRuntimeResources } = require('../src/hermes/runner');
     assert.equal(restartDelayFor({ restartDelayMs: 60000 }, new Error('fixture transient error')), 60000);
     assert.equal(restartDelayFor({ restartDelayMs: 1000 }, new Error('Protocol error: Target closed')), 1000);
 
+    const largeState = {
+      running: true,
+      phase: 'card',
+      message: 'fixture',
+      blockedApplications: ['a', 'b'],
+      cardRetryQueue: ['c'],
+      studyRecords: Array.from({ length: 8 }, (_, id) => ({ id, text: 'x'.repeat(1000) })),
+      catalogRecords: [{ id: 1 }],
+      planTasks: [{ type: 'apply' }, { type: 'study' }],
+      logs: ['one', 'two', 'three']
+    };
+    const compactState = compactStateForEvent(largeState);
+    assert.equal(compactState.running, true);
+    assert.equal(compactState.studyRecordCount, 8);
+    assert.equal(compactState.catalogRecordCount, 1);
+    assert.equal(compactState.planTaskCount, 2);
+    assert.equal(compactState.blockedApplicationCount, 2);
+    assert.deepEqual(compactState.logTail, ['two', 'three']);
+    assert.equal(compactState.studyRecords, undefined);
+    assert.equal(compactState.planTasks, undefined);
+    const compactEnvelope = compactEventEnvelope({ state: largeState, tasks: [{ type: 'apply', name: 'A', url: 'secret' }] });
+    assert.equal(compactEnvelope.tasks[0].url, undefined);
+    assert(JSON.stringify(compactEnvelope).length < JSON.stringify({ state: largeState }).length / 2);
+
+    const rotatingLog = path.join(workspace, 'rotating.ndjson');
+    for (let index = 0; index < 20; index++) {
+      appendEvent(rotatingLog, { index, text: 'x'.repeat(80) }, { maxBytes: 300, backups: 2 });
+    }
+    assert.equal(fs.existsSync(`${rotatingLog}.1`), true);
+    assert.equal(fs.existsSync(`${rotatingLog}.2`), true);
+    assert.equal(fs.existsSync(`${rotatingLog}.3`), false);
+    assert(fs.statSync(rotatingLog).size <= 300);
+
     let runs = 0;
     let delays = 0;
     const result = await superviseHermes({
@@ -57,6 +93,8 @@ const { closeRuntimeResources } = require('../src/hermes/runner');
       lockFile,
       restartLimit: 3,
       restartDelayMs: 1,
+      eventLogMaxBytes: 1024 * 1024,
+      eventLogBackups: 2,
       keepAwake: false
     }, { report() {} }, {
       async delay() { delays++; },
