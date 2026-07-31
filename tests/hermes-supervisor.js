@@ -40,7 +40,10 @@ const { closeRuntimeResources } = require('../src/hermes/runner');
     assert(!keepAwakeScript.includes('SetThreadExecutionState(0x80000001)'));
     if (process.platform === 'win32') {
       const awake = startKeepAwake(true);
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      const deadline = Date.now() + 15000;
+      while (awake.getLastExitCode() === null && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
       assert.equal(awake.isRunning(), true);
       assert.equal(awake.getLastExitCode(), 0);
       assert(awake.getPulseCount() >= 1);
