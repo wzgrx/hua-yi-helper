@@ -68,6 +68,7 @@ const supervised = loadConfig([
   '--supervise', 'true',
   '--restart-limit', '9',
   '--restart-delay-ms', '1234',
+  '--card-retry-minutes', '3',
   '--keep-awake', 'false'
 ], {});
 assert.equal(supervised.supervise, true);
@@ -77,6 +78,7 @@ assert.equal(supervised.keepAwake, false);
 assert.equal(supervised.statusFile, path.join(temp, 'supervised', 'status.json'));
 assert.equal(supervised.eventLogFile, path.join(temp, 'supervised', 'events.ndjson'));
 assert.equal(supervised.lockFile, path.join(temp, 'supervised', 'supervisor.lock'));
+assert.equal(supervised.policy.cardRetryMinutes, 3);
 const noRestart = loadConfig([
   '--browser', fakeBrowser,
   '--data-dir', path.join(temp, 'no-restart'),

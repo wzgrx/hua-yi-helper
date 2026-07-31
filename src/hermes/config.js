@@ -79,6 +79,9 @@ function loadConfig(argv, environment) {
   const year = Number(args.year || env.HUAYI_YEAR || new Date().getFullYear());
   const publicTarget = Number(args['public-target'] || env.HUAYI_PUBLIC_TARGET || 5);
   const otherTarget = Number(args['other-target'] || env.HUAYI_OTHER_TARGET || 20);
+  const cardRetryMinutes = Math.max(1, Number(
+    args['card-retry-minutes'] || env.HUAYI_CARD_RETRY_MINUTES || 5
+  ));
   const workspace = path.resolve(args['data-dir'] || env.HUAYI_DATA_DIR || path.join(process.cwd(), '.huayi-hermes'));
   const browserUrl = String(args['browser-url'] || env.HUAYI_BROWSER_URL || '');
   const supervise = parseBoolean(
@@ -128,7 +131,7 @@ function loadConfig(argv, environment) {
       args['keep-awake'] !== undefined ? args['keep-awake'] : env.HUAYI_KEEP_AWAKE,
       supervise
     ),
-    policy: { year, publicTarget, otherTarget }
+    policy: { year, publicTarget, otherTarget, cardRetryMinutes }
   };
 }
 

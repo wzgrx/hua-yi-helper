@@ -36,6 +36,7 @@
     publicTarget: 5,
     otherTarget: 20
   }, read(POLICY_KEY, {}));
+  CARD_RETRY_MS = Math.max(60 * 1000, Number(policy.cardRetryMinutes || 30) * 60 * 1000);
   var TARGET = Number(policy.publicTarget) + Number(policy.otherTarget);
   function registerMenus() {
     if (typeof GM_registerMenuCommand !== 'function') return;
@@ -44,7 +45,12 @@
       var publicTarget = Number(prompt('公需课目标学分', String(policy.publicTarget)) || policy.publicTarget);
       var otherTarget = Number(prompt('其他课程目标学分', String(policy.otherTarget)) || policy.otherTarget);
       if (!year || publicTarget < 0 || otherTarget < 0) return;
-      policy = { year: year, publicTarget: publicTarget, otherTarget: otherTarget };
+      policy = Object.assign({}, policy, {
+        year: year,
+        publicTarget: publicTarget,
+        otherTarget: otherTarget
+      });
+      CARD_RETRY_MS = Math.max(60 * 1000, Number(policy.cardRetryMinutes || 30) * 60 * 1000);
       TARGET = publicTarget + otherTarget;
       write(POLICY_KEY, policy);
       setState({ message: '年度目标已更新，请重新扫描学习记录' });
@@ -236,6 +242,7 @@
       publicProjected: 0, otherProjected: 0, currentCourseUrl: '', currentCourseName: '',
       currentCwid: '', lastRoute: '', lastActionAt: 0,
       blockedApplications: [], blockedApplicationYear: policy.year, blockedApplicationRetryAt: 0,
+      cardRetryQueue: [],
       catalogYear: policy.year, catalogVisited: [], catalogSourcesVisited: [],
       studyRecords: [], catalogRecords: [], planTasks: [], logs: []
     };
@@ -307,6 +314,7 @@
         blockedApplications: [],
         blockedApplicationYear: Number(policy.year),
         blockedApplicationRetryAt: 0,
+        cardRetryQueue: [],
         message: '正在恢复流程'
       });
       runRoute(true);
@@ -441,15 +449,34 @@
     });
   }
 
-  function blockedApplicationDecision(tasks, retryAt, timestamp) {
+  function blockedApplicationDecision(tasks, retryAt, timestamp, queuedUrls) {
     var list = tasks || [];
     if (!list.length) return null;
     var current = Number(timestamp || Date.now());
     var nextRetryAt = Number(retryAt || 0);
+    var byUrl = {};
+    list.forEach(function (task) {
+      if (task && task.record && task.record.url) byUrl[task.record.url] = task;
+    });
+    var queue = (Array.isArray(queuedUrls) ? queuedUrls : []).filter(function (url, index, urls) {
+      return byUrl[url] && urls.indexOf(url) === index;
+    });
+    if (queue.length) {
+      var queuedUrl = queue.shift();
+      return {
+        action: 'retry',
+        task: byUrl[queuedUrl],
+        queue: queue,
+        retryAt: nextRetryAt || current + CARD_RETRY_MS,
+        waitMs: 0
+      };
+    }
     if (!nextRetryAt || current >= nextRetryAt) {
+      queue = list.slice(1).map(function (task) { return task.record.url; });
       return {
         action: 'retry',
         task: list[0],
+        queue: queue,
         retryAt: current + CARD_RETRY_MS,
         waitMs: 0
       };
@@ -457,6 +484,7 @@
     return {
       action: 'wait',
       task: null,
+      queue: [],
       retryAt: nextRetryAt,
       waitMs: Math.max(1000, nextRetryAt - current)
     };
@@ -556,17 +584,16 @@
     });
     if (blockedApplyTasks.length) {
       var blockedDecision = blockedApplicationDecision(
-        blockedApplyTasks, state.blockedApplicationRetryAt, Date.now()
+        blockedApplyTasks, state.blockedApplicationRetryAt, Date.now(), state.cardRetryQueue
       );
       if (blockedDecision.action === 'retry') {
         var retryTask = blockedDecision.task;
         setState({
           running: true,
           paused: false,
-          blockedApplications: blockedApplications.filter(function (url) {
-            return url !== retryTask.record.url;
-          }),
+          blockedApplications: blockedApplications,
           blockedApplicationRetryAt: blockedDecision.retryAt,
+          cardRetryQueue: blockedDecision.queue,
           currentCourseUrl: retryTask.record.url,
           currentCourseName: retryTask.record.name,
           phase: 'certificate',
@@ -1450,6 +1477,9 @@
       setState({
         blockedApplications: blocked,
         blockedApplicationRetryAt: blocked.length ? state.blockedApplicationRetryAt : 0,
+        cardRetryQueue: (state.cardRetryQueue || []).filter(function (url) {
+          return url !== state.currentCourseUrl;
+        }),
         message: '学分申请成功，返回学习记录核验'
       });
       setTimeout(function () { navigate('/pages/study_info_list.aspx'); }, 1000);

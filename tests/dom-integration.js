@@ -209,17 +209,33 @@ test('证书页仅在申请成功步骤激活后判定完成', () => {
 });
 
 test('培训卡缺失后按持久化时间自动复查申请', () => {
-  const { api } = boot('');
-  const tasks = [{ type: 'apply', record: { url: '/apply', name: '待申请课程' } }];
-  const first = api.blockedApplicationDecision(tasks, 0, 1000);
+  const { api } = boot('', undefined, {
+    HY8_POLICY: { year: 2026, publicTarget: 5, otherTarget: 20, cardRetryMinutes: 30 }
+  });
+  const tasks = [
+    { type: 'apply', record: { url: '/apply-a', name: '待申请课程A' } },
+    { type: 'apply', record: { url: '/apply-b', name: '待申请课程B' } },
+    { type: 'apply', record: { url: '/apply-c', name: '待申请课程C' } }
+  ];
+  const first = api.blockedApplicationDecision(tasks, 0, 1000, []);
   assert.equal(first.action, 'retry');
-  assert.equal(first.task.record.name, '待申请课程');
+  assert.equal(first.task.record.name, '待申请课程A');
+  assert.deepEqual(Array.from(first.queue), ['/apply-b', '/apply-c']);
   assert.equal(first.retryAt, 1801000);
-  const waiting = api.blockedApplicationDecision(tasks, first.retryAt, 2000);
+  const second = api.blockedApplicationDecision(tasks, first.retryAt, 2000, first.queue);
+  assert.equal(second.action, 'retry');
+  assert.equal(second.task.record.name, '待申请课程B');
+  assert.deepEqual(Array.from(second.queue), ['/apply-c']);
+  assert.equal(second.retryAt, first.retryAt);
+  const third = api.blockedApplicationDecision(tasks, second.retryAt, 3000, second.queue);
+  assert.equal(third.task.record.name, '待申请课程C');
+  assert.deepEqual(Array.from(third.queue), []);
+  const waiting = api.blockedApplicationDecision(tasks, first.retryAt, 4000, third.queue);
   assert.equal(waiting.action, 'wait');
-  assert.equal(waiting.waitMs, 1799000);
-  const due = api.blockedApplicationDecision(tasks, first.retryAt, 1801001);
+  assert.equal(waiting.waitMs, 1797000);
+  const due = api.blockedApplicationDecision(tasks, first.retryAt, 1801001, waiting.queue);
   assert.equal(due.action, 'retry');
+  assert.equal(due.task.record.name, '待申请课程A');
 });
 
 test('新版培训卡页等待异步数据并提交站点推荐组合', () => {
