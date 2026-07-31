@@ -587,6 +587,94 @@ function killBrowserProcessesForProfile(userDataDir) {
   );
 }
 
+function diagnosticUrl(value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    const keys = Array.from(new Set(Array.from(parsed.searchParams.keys()))).sort();
+    return `${parsed.origin}${parsed.pathname}` +
+      (keys.length ? `?${keys.map(key => `${encodeURIComponent(key)}=[REDACTED]`).join('&')}` : '');
+  } catch (_) {
+    return String(value || '').split('?')[0];
+  }
+}
+
+function sanitizeDiagnosticHtml(value) {
+  return String(value || '')
+    .replace(/(<(?:input|option)\b[^>]*\bvalue\s*=\s*)(["'])[^"']*\2/gi, '$1$2[REDACTED]$2')
+    .replace(/(<textarea\b[^>]*>)[\s\S]*?(<\/textarea>)/gi, '$1[REDACTED]$2')
+    .replace(/([?&](?:token|password|passwd|pwd|card|cardno|account|username|captcha|code)=)[^&"'\s<]*/gi,
+      '$1[REDACTED]')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[REDACTED_EMAIL]')
+    .replace(/\b\d{6,}\b/g, '[REDACTED_NUMBER]');
+}
+
+function pruneDiagnostics(directory, limit) {
+  if (!directory || !fs.existsSync(directory)) return;
+  const keep = Math.max(1, Math.floor(Number(limit) || 20));
+  const records = fs.readdirSync(directory)
+    .filter(name => name.endsWith('.json'))
+    .map(name => {
+      const file = path.join(directory, name);
+      return { file, stem: file.slice(0, -5), mtime: fs.statSync(file).mtimeMs };
+    })
+    .sort((left, right) => right.mtime - left.mtime);
+  records.slice(keep).forEach(record => {
+    ['.json', '.html', '.png'].forEach(extension => fs.rmSync(`${record.stem}${extension}`, { force: true }));
+  });
+}
+
+async function captureDiagnostic(page, config, reason, error) {
+  if (!config || config.diagnosticsEnabled === false || !config.diagnosticsDir ||
+      !page || typeof page.isClosed === 'function' && page.isClosed()) return null;
+  const directory = config.diagnosticsDir;
+  fs.mkdirSync(directory, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safeReason = String(reason || 'diagnostic').replace(/[^a-z0-9_-]+/gi, '-').slice(0, 48) || 'diagnostic';
+  const stem = path.join(directory, `${timestamp}-${safeReason}-${process.pid}-${Math.random().toString(16).slice(2, 8)}`);
+  const metadata = {
+    version: config.version,
+    capturedAt: new Date().toISOString(),
+    reason: String(reason || 'diagnostic'),
+    url: diagnosticUrl(typeof page.url === 'function' ? page.url() : ''),
+    title: '',
+    error: error ? String(error.stack || error.message || error).slice(0, 8000) : '',
+    files: {},
+    captureErrors: []
+  };
+  try {
+    metadata.title = String(await operationTimeout(page.title(), 5000, '诊断标题读取') || '').slice(0, 300);
+  } catch (captureError) {
+    metadata.captureErrors.push(`title: ${captureError.message}`);
+  }
+  try {
+    await operationTimeout(page.screenshot({ path: `${stem}.png`, fullPage: false }), 10000, '诊断截图');
+    metadata.files.screenshot = path.basename(`${stem}.png`);
+  } catch (captureError) {
+    metadata.captureErrors.push(`screenshot: ${captureError.message}`);
+  }
+  try {
+    const html = await operationTimeout(page.evaluate(() => {
+      const clone = document.documentElement.cloneNode(true);
+      clone.querySelectorAll('script,style,noscript,iframe,object,embed').forEach(element => element.remove());
+      clone.querySelectorAll('input,textarea,select,option').forEach(element => {
+        element.removeAttribute('value');
+        element.removeAttribute('srcdoc');
+        if (element.tagName === 'TEXTAREA') element.textContent = '';
+      });
+      return `<!doctype html>\n${clone.outerHTML}`;
+    }), 10000, '诊断页面提取');
+    const sanitized = sanitizeDiagnosticHtml(html).slice(0, 2 * 1024 * 1024);
+    fs.writeFileSync(`${stem}.html`, sanitized, 'utf8');
+    metadata.files.html = path.basename(`${stem}.html`);
+  } catch (captureError) {
+    metadata.captureErrors.push(`html: ${captureError.message}`);
+  }
+  fs.writeFileSync(`${stem}.json`, `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  metadata.files.metadata = path.basename(`${stem}.json`);
+  pruneDiagnostics(directory, config.diagnosticLimit);
+  return metadata;
+}
+
 async function closeRuntimeResources(browser, captchaService, connected, userDataDir) {
   let browserPid = 0;
   if (browser && !connected) {
@@ -650,6 +738,7 @@ async function runHermes(config, callbacks) {
   }
   const connected = Boolean(config.browserUrl);
   let browser = null;
+  let page = null;
   try {
     const userscript = fs.readFileSync(path.join(__dirname, '..', 'tampermonkey', 'hua-yi-helper.user.js'), 'utf8');
     browser = connected ? await puppeteer.connect({ browserURL: config.browserUrl, defaultViewport: null }) :
@@ -666,7 +755,7 @@ async function runHermes(config, callbacks) {
       ]
       });
   const existingPages = await browser.pages();
-  const page = await browser.newPage();
+  page = await browser.newPage();
   for (const existingPage of existingPages) {
     try {
       await Promise.race([
@@ -795,11 +884,29 @@ async function runHermes(config, callbacks) {
       return { status: 'done', state, policy: Core.buildAnnualPlan(state.studyRecords || [], state.catalogRecords || [], config.policy) };
     }
     if (!state.running) {
+      const diagnostic = await captureDiagnostic(page, config, 'attention');
+      if (diagnostic) report({
+        type: 'diagnostic',
+        message: `已保存待处理现场：${diagnostic.files.metadata}`
+      });
       return { status: 'attention', state };
     }
     if (config.signal && config.signal.aborted) return { status: 'stopped', state };
   }
-    return { status: 'timeout', state: await readState(page) };
+    const timeoutState = await readState(page);
+    const diagnostic = await captureDiagnostic(page, config, 'timeout');
+    if (diagnostic) report({
+      type: 'diagnostic',
+      message: `已保存超时现场：${diagnostic.files.metadata}`
+    });
+    return { status: 'timeout', state: timeoutState };
+  } catch (error) {
+    const diagnostic = await captureDiagnostic(page, config, 'error', error).catch(() => null);
+    if (diagnostic) report({
+      type: 'diagnostic',
+      message: `已保存异常现场：${diagnostic.files.metadata}`
+    });
+    throw error;
   } finally {
     await closeRuntimeResources(browser, captchaService, connected, config.userDataDir);
   }
@@ -825,6 +932,10 @@ module.exports = {
   clickTrustedSurveyAction,
   readPlayerMediaState,
   updatePlayerWatch,
+  diagnosticUrl,
+  sanitizeDiagnosticHtml,
+  pruneDiagnostics,
+  captureDiagnostic,
   processExists,
   killBrowserProcessesForProfile,
   closeRuntimeResources,

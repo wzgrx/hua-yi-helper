@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const {
   parseArgs,
+  numberSetting,
   browserCandidates,
   resolveBrowser,
   loadConfig,
@@ -16,6 +17,9 @@ const args = parseArgs(['--browser=C:\\Edge\\msedge.exe', '--year', '2025', '--h
 assert.equal(args.browser, 'C:\\Edge\\msedge.exe');
 assert.equal(args.year, '2025');
 assert.equal(args.headless, true);
+assert.equal(numberSetting('5', 1, { name: '测试', integer: true, min: 0 }), 5);
+assert.throws(() => numberSetting('bad', 1, { name: '测试' }), /测试 必须是有效数字/);
+assert.throws(() => numberSetting('1.5', 1, { name: '测试', integer: true }), /测试 必须是整数/);
 
 const windows = browserCandidates({
   'PROGRAMFILES(X86)': 'C:\\Program Files (x86)',
@@ -70,6 +74,8 @@ const supervised = loadConfig([
   '--restart-delay-ms', '1234',
   '--event-log-max-bytes', '131072',
   '--event-log-backups', '5',
+  '--diagnostics', 'true',
+  '--diagnostic-limit', '12',
   '--card-retry-minutes', '3',
   '--keep-awake', 'false'
 ], {});
@@ -78,6 +84,10 @@ assert.equal(supervised.restartLimit, 9);
 assert.equal(supervised.restartDelayMs, 1234);
 assert.equal(supervised.eventLogMaxBytes, 131072);
 assert.equal(supervised.eventLogBackups, 5);
+assert.match(supervised.version, /^\d+\.\d+\.\d+$/);
+assert.equal(supervised.diagnosticsEnabled, true);
+assert.equal(supervised.diagnosticLimit, 12);
+assert.equal(supervised.diagnosticsDir, path.join(temp, 'supervised', 'diagnostics'));
 assert.equal(supervised.keepAwake, false);
 assert.equal(supervised.statusFile, path.join(temp, 'supervised', 'status.json'));
 assert.equal(supervised.eventLogFile, path.join(temp, 'supervised', 'events.ndjson'));
@@ -93,6 +103,10 @@ assert.equal(noRestart.restartLimit, 0);
 assert.equal(noRestart.restartDelayMs, 0);
 assert.equal(noRestart.eventLogMaxBytes, 10 * 1024 * 1024);
 assert.equal(noRestart.eventLogBackups, 3);
+assert.equal(noRestart.diagnosticLimit, 20);
+assert.throws(() => loadConfig(['--browser', fakeBrowser, '--year', 'not-a-year'], {}), /年度 必须是有效数字/);
+assert.throws(() => loadConfig(['--browser', fakeBrowser, '--captcha-port', '70000'], {}), /端口 不得大于 65535/);
+assert.throws(() => loadConfig(['--browser', fakeBrowser, '--restart-limit', '-1'], {}), /重启上限 不得小于 0/);
 fs.rmSync(temp, { recursive: true, force: true });
 
 console.log('Hermes Win11/WSL 配置测试通过');

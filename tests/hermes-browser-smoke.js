@@ -10,6 +10,8 @@ const {
   closeRuntimeResources,
   clickTrustedPlayerAction,
   clickTrustedSurveyAction,
+  captureDiagnostic,
+  sanitizeDiagnosticHtml,
   operationTimeout,
   updatePlayerWatch
 } = require('../src/hermes/runner');
@@ -92,6 +94,29 @@ const {
     const pausedWatch = updatePlayerWatch(initialWatch.watch,
       Object.assign({}, playing, { paused: true }), 60000, 45000);
     assert.equal(pausedWatch.stalled, false);
+    assert(!sanitizeDiagnosticHtml('<input value="secret"><p>1234567890123</p>').includes('secret'));
+    assert(!sanitizeDiagnosticHtml('<input value="secret"><p>1234567890123</p>').includes('1234567890123'));
+    const diagnosticsDir = path.join(profile, 'diagnostics');
+    await page.setContent(`<main>异常页面 1234567890123
+      <input id="account" value="secret-account"><textarea>secret-note</textarea>
+      <script>window.secret = 'secret-script'</script></main>`);
+    for (let index = 0; index < 3; index++) {
+      await captureDiagnostic(page, {
+        version: 'fixture-version',
+        diagnosticsEnabled: true,
+        diagnosticsDir,
+        diagnosticLimit: 2
+      }, `fixture-${index}`);
+    }
+    const diagnosticMetadata = fs.readdirSync(diagnosticsDir).filter(name => name.endsWith('.json'));
+    assert.equal(diagnosticMetadata.length, 2);
+    const diagnosticHtml = fs.readFileSync(path.join(
+      diagnosticsDir, diagnosticMetadata.map(name => name.replace(/\.json$/, '.html'))[0]
+    ), 'utf8');
+    assert(!diagnosticHtml.includes('secret-account'));
+    assert(!diagnosticHtml.includes('secret-note'));
+    assert(!diagnosticHtml.includes('secret-script'));
+    assert(!diagnosticHtml.includes('1234567890123'));
     console.log(`Hermes 真实浏览器烟雾测试通过：${version}`);
   } finally {
     await closeRuntimeResources(browser, null, false, profile);

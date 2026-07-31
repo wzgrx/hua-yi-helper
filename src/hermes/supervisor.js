@@ -264,6 +264,7 @@ async function superviseHermes(config, callbacks, dependencies) {
   let finalStatus = 'starting';
   const publish = (event, extra) => {
     const envelope = Object.assign({
+      version: config.version,
       sequence: ++sequence,
       timestamp: isoNow(),
       pid: process.pid,
@@ -278,6 +279,7 @@ async function superviseHermes(config, callbacks, dependencies) {
       backups: config.eventLogBackups
     });
     atomicWriteJson(config.statusFile, {
+      version: config.version,
       pid: process.pid,
       startedAt,
       updatedAt: envelope.timestamp,

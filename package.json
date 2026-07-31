@@ -1,15 +1,18 @@
 {
   "name": "hua-yi-helper",
-  "version": "8.8.7",
-  "description": "华医网学习助手 v8.8.7 - Tampermonkey、Hermes、WSL 与 Win11 跨端年度 5+20 智能规划",
+  "version": "8.9.0",
+  "description": "华医网学习助手 v8.9.0 - Tampermonkey、Hermes、WSL 与 Win11 跨端年度 5+20 智能规划",
   "scripts": {
-    "test": "npm run build && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/captcha.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-supervisor.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
+    "test": "npm run build && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/captcha.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-supervisor.js && node tests/hermes-status.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
     "build": "node scripts/build-userscript.js",
     "hermes": "node src/hermes/cli.js",
     "captcha": "node src/hermes/captcha-cli.js",
+    "status": "node src/hermes/status-cli.js",
     "test:live": "node tests/live-login.js",
     "test:ocr": "node tests/live-captcha-ocr.js",
-    "test:login": "node tests/live-auto-login.js"
+    "test:login": "node tests/live-auto-login.js",
+    "test:browser": "node tests/hermes-browser-smoke.js",
+    "audit:security": "npm audit --registry=https://registry.npmjs.org --audit-level=high"
   },
   "keywords": [
     "huayi",

@@ -1,4 +1,6 @@
-# 华医网学习助手 v8.8.7
+# 华医网学习助手 v8.9.0
+
+[![CI](https://github.com/wzgrx/hua-yi-helper/actions/workflows/ci.yml/badge.svg)](https://github.com/wzgrx/hua-yi-helper/actions/workflows/ci.yml)
 
 面向华医网继续医学教育流程的跨端自动化实现。v8 将年度学分规划抽成共享核心，并由 Tampermonkey 与 Hermes/Puppeteer 共用：目标年度默认要求 **公需课 5 分**，再从**继续教育**和**全员专项**中选择课程补足**其他 20 分**。
 
@@ -108,6 +110,14 @@ Hermes 会自动启动本机 OCR 服务，统一处理登录验证码与考试�
 ```
 
 可用 `--status-file`、`--event-log-file`、`--event-log-max-bytes`、`--event-log-backups`、`--lock-file` 自定义监督文件位置与事件日志上限；对应环境变量为 `HUAYI_EVENT_LOG_MAX_BYTES` 和 `HUAYI_EVENT_LOG_BACKUPS`。Windows 保持唤醒由监督器每 20 秒刷新系统空闲计时器，避开长驻 PowerShell 子进程被系统回收后静默失效的问题；刷新失败会写入事件日志。主进程收到 `Ctrl+C` 或终止信号后会结束当前周期并回收临时进程。
+
+Hermes 会在异常、运行超时或需要处理的页面状态下，把截图、脱敏 DOM 和元数据写入数据目录下的 `diagnostics`。默认保留最近 20 组，可通过 `--diagnostics false`、`--diagnostics-dir`、`--diagnostic-limit` 或 `HUAYI_DIAGNOSTICS`、`HUAYI_DIAGNOSTICS_DIR`、`HUAYI_DIAGNOSTIC_LIMIT` 调整。监督状态与事件均包含当前程序版本，数值参数会在启动阶段检查类型和范围，避免错误年度、端口或运行时长进入无人值守流程。
+
+可在另一个终端打开只读状态看板；增加 `--json true` 可输出机器可读状态，增加 `--watch-seconds 5` 可持续刷新：
+
+```powershell
+.\bin\huayi-status.ps1 --data-dir .huayi-hermes --watch-seconds 5
+```
 
 ## Hermes：WSL
 

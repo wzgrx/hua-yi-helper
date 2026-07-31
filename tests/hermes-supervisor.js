@@ -87,6 +87,7 @@ const { closeRuntimeResources } = require('../src/hermes/runner');
     let runs = 0;
     let delays = 0;
     const result = await superviseHermes({
+      version: 'fixture-version',
       stateDir: workspace,
       statusFile,
       eventLogFile,
@@ -115,12 +116,14 @@ const { closeRuntimeResources } = require('../src/hermes/runner');
     assert.equal(fs.existsSync(lockFile), false);
     const status = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
     assert.equal(status.status, 'done');
+    assert.equal(status.version, 'fixture-version');
     assert.equal(status.attempt, 3);
     assert.equal(status.state.otherEarned, 20);
     const events = fs.readFileSync(eventLogFile, 'utf8').trim().split(/\r?\n/).map(JSON.parse);
     assert(events.some(event => event.type === 'error'));
     assert(events.some(event => event.type === 'restart_wait'));
     assert(events.some(event => event.status === 'done'));
+    assert(events.every(event => event.version === 'fixture-version'));
 
     let disconnected = 0;
     let closed = 0;

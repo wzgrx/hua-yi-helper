@@ -11,7 +11,8 @@
 | 旧版本原位升级 | 保留脚本名称，迁移 `HY7_*` 到 `HY8_*` | 模块契约和迁移夹具 |
 | Win11 | Edge/Chrome 自动路径发现、PowerShell 启动器 | `tests/hermes-config.js` |
 | WSL | `/mnt/c` 浏览器探测、Bash 启动器、DevTools URL 连接 | WSL 路径与参数测试 |
-| Hermes | Puppeteer 运行器、浏览器资料目录、状态监视、长时监督重启、单实例锁、原子状态与 NDJSON 事件日志、Windows 临时保持唤醒 | 配置、登录、监督器资源回收和浏览器烟雾测试 |
+| Hermes | Puppeteer 运行器、浏览器资料目录、状态看板、长时监督重启、单实例锁、原子状态、轮转 NDJSON 事件日志、诊断现场采集、Windows 临时保持唤醒 | 配置、登录、监督器、状态看板、诊断脱敏、资源回收和浏览器烟雾测试 |
+| 持续集成 | Windows/Linux 与 Node 20/24 矩阵、强制真实浏览器烟雾测试、安全审计、生成物一致性和用户脚本归档 | `.github/workflows/ci.yml` |
 | 跨子域断点 | 受 4 KiB Cookie 上限约束的状态桥；本地完整记录与桥接游标按时间戳合并 | `tests/hermes-login.js` 大状态与跨子域夹具、实站状态机 |
 | 自动登录 | 微信/短信/密码模式切换、真实字段、密码同步、协议勾选、提交重试和断点恢复 | `tests/hermes-login.js`、`tests/live-login.js` 与真实 `test:login` |
 | 图形验证码 | 本机 Tesseract.js、Sharp 预处理、定宽数字分割、共识识别；统一覆盖登录与考试异常验证页 | `tests/captcha.js`、DOM 适配与 12 个真实验证码回归 |

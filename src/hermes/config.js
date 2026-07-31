@@ -3,10 +3,32 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const packageVersion = require('../../package.json').version;
 
 function parseBoolean(value, fallback) {
   if (value === undefined || value === null || value === '') return fallback;
   return /^(1|true|yes|on)$/i.test(String(value));
+}
+
+function settingValue(primary, secondary, fallback) {
+  if (primary !== undefined && primary !== null && primary !== '') return primary;
+  if (secondary !== undefined && secondary !== null && secondary !== '') return secondary;
+  return fallback;
+}
+
+function numberSetting(value, fallback, options) {
+  const settings = options || {};
+  const parsed = Number(settingValue(value, undefined, fallback));
+  const label = settings.name || '数值配置';
+  if (!Number.isFinite(parsed)) throw new Error(`${label} 必须是有效数字`);
+  if (settings.integer && !Number.isInteger(parsed)) throw new Error(`${label} 必须是整数`);
+  if (settings.min !== undefined && parsed < settings.min) {
+    throw new Error(`${label} 不得小于 ${settings.min}`);
+  }
+  if (settings.max !== undefined && parsed > settings.max) {
+    throw new Error(`${label} 不得大于 ${settings.max}`);
+  }
+  return parsed;
 }
 
 function parseArgs(argv) {
@@ -76,30 +98,41 @@ function resolveBrowser(explicitPath, options) {
 function loadConfig(argv, environment) {
   const args = parseArgs(argv || []);
   const env = environment || process.env;
-  const year = Number(args.year || env.HUAYI_YEAR || new Date().getFullYear());
-  const publicTarget = Number(args['public-target'] || env.HUAYI_PUBLIC_TARGET || 5);
-  const otherTarget = Number(args['other-target'] || env.HUAYI_OTHER_TARGET || 20);
-  const cardRetryMinutes = Math.max(1, Number(
-    args['card-retry-minutes'] || env.HUAYI_CARD_RETRY_MINUTES || 5
+  const year = numberSetting(settingValue(args.year, env.HUAYI_YEAR), new Date().getFullYear(), {
+    name: '年度', integer: true, min: 2000, max: 2100
+  });
+  const publicTarget = numberSetting(settingValue(args['public-target'], env.HUAYI_PUBLIC_TARGET), 5, {
+    name: '公需学分目标', min: 0, max: 100
+  });
+  const otherTarget = numberSetting(settingValue(args['other-target'], env.HUAYI_OTHER_TARGET), 20, {
+    name: '其他学分目标', min: 0, max: 100
+  });
+  const cardRetryMinutes = numberSetting(
+    settingValue(args['card-retry-minutes'], env.HUAYI_CARD_RETRY_MINUTES), 5,
+    { name: '培训卡复查分钟数', min: 1, max: 24 * 60 }
+  );
+  const workspace = path.resolve(settingValue(
+    args['data-dir'], env.HUAYI_DATA_DIR, path.join(process.cwd(), '.huayi-hermes')
   ));
-  const workspace = path.resolve(args['data-dir'] || env.HUAYI_DATA_DIR || path.join(process.cwd(), '.huayi-hermes'));
-  const browserUrl = String(args['browser-url'] || env.HUAYI_BROWSER_URL || '');
+  const browserUrl = String(settingValue(args['browser-url'], env.HUAYI_BROWSER_URL, ''));
   const supervise = parseBoolean(
     args.supervise !== undefined ? args.supervise : env.HUAYI_SUPERVISE,
     false
   );
-  const requestedEventLogMaxBytes = Number(
-    args['event-log-max-bytes'] || env.HUAYI_EVENT_LOG_MAX_BYTES || 10 * 1024 * 1024
+  const eventLogMaxBytes = numberSetting(
+    settingValue(args['event-log-max-bytes'], env.HUAYI_EVENT_LOG_MAX_BYTES), 10 * 1024 * 1024,
+    { name: '事件日志字节上限', integer: true, min: 64 * 1024 }
   );
-  const eventLogMaxBytes = Number.isFinite(requestedEventLogMaxBytes) ?
-    Math.max(64 * 1024, Math.floor(requestedEventLogMaxBytes)) : 10 * 1024 * 1024;
-  const requestedEventLogBackups = Number(
-    args['event-log-backups'] !== undefined ? args['event-log-backups'] :
-      (env.HUAYI_EVENT_LOG_BACKUPS !== undefined ? env.HUAYI_EVENT_LOG_BACKUPS : 3)
+  const eventLogBackups = numberSetting(
+    settingValue(args['event-log-backups'], env.HUAYI_EVENT_LOG_BACKUPS), 3,
+    { name: '事件日志备份数', integer: true, min: 0, max: 20 }
   );
-  const eventLogBackups = Number.isFinite(requestedEventLogBackups) ?
-    Math.min(20, Math.max(0, Math.floor(requestedEventLogBackups))) : 3;
+  const diagnosticLimit = numberSetting(
+    settingValue(args['diagnostic-limit'], env.HUAYI_DIAGNOSTIC_LIMIT), 20,
+    { name: '诊断现场保留数', integer: true, min: 1, max: 200 }
+  );
   return {
+    version: packageVersion,
     browserPath: browserUrl ? '' : resolveBrowser(args.browser || env.HUAYI_BROWSER, { environment: env }),
     browserUrl,
     userDataDir: path.join(workspace, 'browser-profile'),
@@ -112,33 +145,50 @@ function loadConfig(argv, environment) {
       args['captcha-auto'] !== undefined ? args['captcha-auto'] : env.HUAYI_CAPTCHA_AUTO,
       true
     ),
-    captchaMaxAttempts: Math.max(1, Number(
-      args['captcha-max-attempts'] || env.HUAYI_CAPTCHA_MAX_ATTEMPTS || 6
-    )),
-    captchaExpectedLength: Math.max(1, Number(
-      args['captcha-length'] || env.HUAYI_CAPTCHA_LENGTH || 5
-    )),
-    captchaPort: Math.max(0, Number(args['captcha-port'] || env.HUAYI_CAPTCHA_PORT || 17891)),
+    captchaMaxAttempts: numberSetting(
+      settingValue(args['captcha-max-attempts'], env.HUAYI_CAPTCHA_MAX_ATTEMPTS), 6,
+      { name: '验证码最大尝试次数', integer: true, min: 1, max: 100 }
+    ),
+    captchaExpectedLength: numberSetting(
+      settingValue(args['captcha-length'], env.HUAYI_CAPTCHA_LENGTH), 5,
+      { name: '验证码长度', integer: true, min: 1, max: 12 }
+    ),
+    captchaPort: numberSetting(settingValue(args['captcha-port'], env.HUAYI_CAPTCHA_PORT), 17891, {
+      name: '验证码服务端口', integer: true, min: 0, max: 65535
+    }),
     captchaProviderUrl: String(
       args['captcha-provider-url'] || env.HUAYI_CAPTCHA_PROVIDER_URL || ''
     ),
     headless: parseBoolean(args.headless !== undefined ? args.headless : env.HUAYI_HEADLESS, false),
-    maxRuntimeMs: Number(args['max-runtime-ms'] || env.HUAYI_MAX_RUNTIME_MS || 8 * 60 * 60 * 1000),
-    captchaTimeoutMs: Number(args['captcha-timeout-ms'] || env.HUAYI_CAPTCHA_TIMEOUT_MS || 10 * 60 * 1000),
-    once: parseBoolean(args.once, false),
+    maxRuntimeMs: numberSetting(
+      settingValue(args['max-runtime-ms'], env.HUAYI_MAX_RUNTIME_MS), 8 * 60 * 60 * 1000,
+      { name: '单轮运行毫秒数', integer: true, min: 1000 }
+    ),
+    captchaTimeoutMs: numberSetting(
+      settingValue(args['captcha-timeout-ms'], env.HUAYI_CAPTCHA_TIMEOUT_MS), 10 * 60 * 1000,
+      { name: '验证码等待毫秒数', integer: true, min: 1000 }
+    ),
+    once: parseBoolean(args.once !== undefined ? args.once : env.HUAYI_ONCE, false),
     supervise,
-    restartLimit: Math.max(0, Number(
-      args['restart-limit'] !== undefined ? args['restart-limit'] :
-        (env.HUAYI_RESTART_LIMIT !== undefined ? env.HUAYI_RESTART_LIMIT : 20)
-    )),
-    restartDelayMs: Math.max(0, Number(
-      args['restart-delay-ms'] !== undefined ? args['restart-delay-ms'] :
-        (env.HUAYI_RESTART_DELAY_MS !== undefined ? env.HUAYI_RESTART_DELAY_MS : 60 * 1000)
-    )),
+    restartLimit: numberSetting(settingValue(args['restart-limit'], env.HUAYI_RESTART_LIMIT), 20, {
+      name: '重启上限', integer: true, min: 0, max: 1000
+    }),
+    restartDelayMs: numberSetting(
+      settingValue(args['restart-delay-ms'], env.HUAYI_RESTART_DELAY_MS), 60 * 1000,
+      { name: '重启等待毫秒数', integer: true, min: 0 }
+    ),
     statusFile: path.resolve(args['status-file'] || env.HUAYI_STATUS_FILE || path.join(workspace, 'status.json')),
     eventLogFile: path.resolve(args['event-log-file'] || env.HUAYI_EVENT_LOG_FILE || path.join(workspace, 'events.ndjson')),
     eventLogMaxBytes,
     eventLogBackups,
+    diagnosticsEnabled: parseBoolean(
+      args.diagnostics !== undefined ? args.diagnostics : env.HUAYI_DIAGNOSTICS,
+      true
+    ),
+    diagnosticsDir: path.resolve(settingValue(
+      args['diagnostics-dir'], env.HUAYI_DIAGNOSTICS_DIR, path.join(workspace, 'diagnostics')
+    )),
+    diagnosticLimit,
     lockFile: path.resolve(args['lock-file'] || env.HUAYI_LOCK_FILE || path.join(workspace, 'supervisor.lock')),
     keepAwake: parseBoolean(
       args['keep-awake'] !== undefined ? args['keep-awake'] : env.HUAYI_KEEP_AWAKE,
@@ -150,6 +200,7 @@ function loadConfig(argv, environment) {
 
 function publicConfig(config) {
   return {
+    version: config.version,
     browserPath: config.browserPath,
     browserUrl: config.browserUrl,
     userDataDir: config.userDataDir,
@@ -167,6 +218,9 @@ function publicConfig(config) {
     eventLogFile: config.eventLogFile,
     eventLogMaxBytes: config.eventLogMaxBytes,
     eventLogBackups: config.eventLogBackups,
+    diagnosticsEnabled: config.diagnosticsEnabled,
+    diagnosticsDir: config.diagnosticsDir,
+    diagnosticLimit: config.diagnosticLimit,
     lockFile: config.lockFile,
     keepAwake: config.keepAwake,
     policy: config.policy,
@@ -177,6 +231,8 @@ function publicConfig(config) {
 
 module.exports = {
   parseBoolean,
+  settingValue,
+  numberSetting,
   parseArgs,
   browserCandidates,
   resolveBrowser,
