@@ -1465,10 +1465,70 @@
     else { setState({ running: false, message: '未找到证书申请按钮' }); }
   }
 
-  function handleCard() {
-    if (!state.running) return;
+  function nativeCardSelectionReady() {
+    try {
+      var selected = Array.isArray(window.selectedCombinations) ? window.selectedCombinations : [];
+      var usesBalance = selected.some(function (item) {
+        return item && (item.combinationType === 'SCORE' || item.combinationType === 'PERIOD');
+      });
+      if (usesBalance && typeof window.isScoreEnough === 'function') return Boolean(window.isScoreEnough());
+    } catch (_) {}
+    return true;
+  }
+  function usableCardCount(text) {
+    var body = clean(text);
+    var pattern = /可用培训卡\s*[\(（]?\s*(\d+)\s*[\)）]?/g;
+    var match;
+    while ((match = pattern.exec(body))) {
+      if (match.index === 0 || body.charAt(match.index - 1) !== '不') return Number(match[1]);
+    }
+    return null;
+  }
+  function findCardAction() {
+    var loading = Array.from(document.querySelectorAll(
+      '#loadingOverlay,.loading.show,[class*="loading"][aria-busy="true"]'
+    )).find(enabled);
+    if (loading) return { type: 'loading', element: loading };
     var text = pageText();
-    if (/可用培训卡\s*\(?0\)?|这里空空的|暂无.*培训卡/.test(text)) {
+    var availableCount = usableCardCount(text);
+    if (availableCount === 0 ||
+        (availableCount == null && /这里空空的|暂无.*培训卡/.test(text))) return { type: 'empty' };
+    var modalAction = Array.from(document.querySelectorAll(
+      '#confirmBtnSecondary,#confirmModalBg button,.confirm-modal button'
+    )).find(function (element) {
+      return enabled(element) && /用我选的卡|继续使用|确认使用/.test(actionText(element));
+    });
+    if (modalAction) return { type: 'confirm', element: modalAction };
+    var modernSubmit = document.querySelector('#submitBtn');
+    var uncheckedCombination = Array.from(document.querySelectorAll(
+      '.combination-card:not(.disabled) input[type="checkbox"]:not([disabled]):not(:checked)'
+    )).find(enabled);
+    if (modernSubmit && enabled(modernSubmit) && nativeCardSelectionReady()) {
+      return { type: 'submit', element: modernSubmit };
+    }
+    if (uncheckedCombination) return { type: 'select', element: uncheckedCombination };
+    var radios = Array.from(document.querySelectorAll('input[type="radio"]:not([disabled])')).filter(enabled);
+    var selectedRadio = radios.find(function (radio) { return radio.checked; });
+    if (!selectedRadio && radios.length) return { type: 'select', element: radios[0] };
+    var legacySubmit = findSemanticActions(/确认|确定|立即使用|开始学习|提交/, /取消|返回/, {
+      maxText: 18,
+      selectors: 'button,input[type="button"],input[type="submit"],a[href],[role="button"]'
+    })[0];
+    if ((selectedRadio || document.querySelector('input[type="checkbox"]:checked')) && legacySubmit) {
+      return { type: 'submit', element: legacySubmit.element };
+    }
+    return { type: 'attention' };
+  }
+  function handleCard(retry) {
+    retry = Number(retry || 0);
+    if (!state.running) return;
+    var action = findCardAction();
+    if (action.type === 'loading' && retry < 40) {
+      setState({ phase: 'card', message: '正在读取可用培训卡' });
+      setTimeout(function () { if (state.running && route() === 'card') handleCard(retry + 1); }, 500);
+      return;
+    }
+    if (action.type === 'empty') {
       var blocked = Array.isArray(state.blockedApplications) ? state.blockedApplications.slice() : [];
       if (state.currentCourseUrl && blocked.indexOf(state.currentCourseUrl) < 0) blocked.push(state.currentCourseUrl);
       setState({
@@ -1483,27 +1543,32 @@
       }, 900);
       return;
     }
-    var radios = Array.from(document.querySelectorAll('input[type="radio"]:not([disabled])'));
-    var selected = radios.find(function (radio) { return radio.checked; });
-    if (!selected && radios.length === 1) {
-      humanClick(radios[0]);
-      selected = radios[0];
+    if (action.type === 'select') {
+      setState({ phase: 'card', message: '正在按站点最优顺序选择培训卡' });
+      humanClick(action.element);
+      setTimeout(function () { if (state.running && route() === 'card') handleCard(retry + 1); }, 450);
+      return;
     }
-    var submit = findSemanticActions(/确认|确定|立即使用|开始学习|提交/, /取消|返回/, {
-      maxText: 18,
-      selectors: 'button,input[type="button"],input[type="submit"],a[href],[role="button"]'
-    })[0];
-    if (selected && submit) {
-      setState({ phase: 'card', message: '已选择唯一可用培训卡，正在继续' });
-      setTimeout(function () { if (state.running) humanClick(submit.element); }, 900);
-    } else {
+    if (action.type === 'submit' || action.type === 'confirm') {
       setState({
-        running: false,
-        paused: true,
         phase: 'card',
-        message: radios.length > 1 ? '检测到多张培训卡，请选择后点击开始/继续' : '培训卡页面需要确认，请处理后点击开始/继续'
+        message: action.type === 'confirm' ? '正在确认使用站点已选培训卡' : '已按站点最优顺序选卡，正在提交'
       });
+      setTimeout(function () {
+        if (!state.running || route() !== 'card') return;
+        humanClick(action.element);
+        setTimeout(function () {
+          if (state.running && route() === 'card') handleCard(retry + 1);
+        }, 900);
+      }, 650);
+      return;
     }
+    setState({
+      running: false,
+      paused: true,
+      phase: 'card',
+      message: '培训卡页面需要确认，请处理后点击开始/继续'
+    });
   }
 
   function setInputValue(input, value) {
@@ -2274,6 +2339,8 @@
       , examCaptchaElements: examCaptchaElements, solveExamCaptcha: solveExamCaptcha
       , selectSurveyChoice: selectSurveyChoice, handleSurvey: handleSurvey
       , blockedApplicationDecision: blockedApplicationDecision
+      , usableCardCount: usableCardCount, nativeCardSelectionReady: nativeCardSelectionReady
+      , findCardAction: findCardAction, handleCard: handleCard
       , savePassedAnswers: savePassedAnswers
     };
     window.__HY7_TEST_API__ = window.__HY8_TEST_API__;

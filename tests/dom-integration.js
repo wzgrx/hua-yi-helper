@@ -222,6 +222,41 @@ test('培训卡缺失后按持久化时间自动复查申请', () => {
   assert.equal(due.action, 'retry');
 });
 
+test('新版培训卡页等待异步数据并提交站点推荐组合', () => {
+  const loading = boot(`<div id="loadingOverlay">加载中</div><button id="submitBtn" disabled>确认使用</button>`,
+    'https://cme28.91huayi.com/pages/card_select.aspx?from=2&cid=x');
+  assert.equal(loading.api.findCardAction().type, 'loading');
+
+  const recommended = boot(`<div id="loadingOverlay" style="display:none">加载中</div>
+    <span>可用培训卡(2)</span><span>不可用培训卡(0)</span>
+    <div class="combination-card selected"><input type="checkbox" checked></div>
+    <button id="submitBtn">确认使用</button>`,
+  'https://cme28.91huayi.com/pages/card_select.aspx?from=2&cid=x');
+  assert.equal(recommended.api.usableCardCount(recommended.window.document.body.textContent), 2);
+  assert.equal(recommended.api.findCardAction().type, 'submit');
+
+  const choice = boot(`<div class="combination-card"><input type="checkbox"></div>
+    <button id="submitBtn" disabled>确认使用</button>`,
+  'https://cme28.91huayi.com/pages/card_select.aspx?from=2&cid=x');
+  assert.equal(choice.api.findCardAction().type, 'select');
+
+  const empty = boot(`<span>可用培训卡(0)</span><span>不可用培训卡(0)</span><p>这里空空的</p>`,
+    'https://cme28.91huayi.com/pages/card_select.aspx?from=2&cid=x');
+  assert.equal(empty.api.usableCardCount(empty.window.document.body.textContent), 0);
+  assert.equal(empty.api.findCardAction().type, 'empty');
+});
+
+test('新版培训卡确认弹层自动使用站点已选组合', () => {
+  const { api } = boot(`<div id="confirmModalBg">
+    <button id="confirmBtnPrimary">使用专用卡</button>
+    <button id="confirmBtnSecondary">用我选的卡</button>
+  </div><button id="submitBtn">确认使用</button>`,
+  'https://cme28.91huayi.com/pages/card_select.aspx?from=2&cid=x');
+  const action = api.findCardAction();
+  assert.equal(action.type, 'confirm');
+  assert.equal(action.element.id, 'confirmBtnSecondary');
+});
+
 test('播放器识别新版签到、继续学习提示及原生媒体状态', () => {
   const { api } = boot(`<video></video><div class="study_diaog"><button class="btn_sign">签到</button></div>`,
     'https://cme28.91huayi.com/course_ware/course_ware_polyv.aspx?cwid=x');
