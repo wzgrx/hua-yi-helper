@@ -1,6 +1,9 @@
 # 华医网学习助手 v8.10.0
 
 [![CI](https://github.com/wzgrx/hua-yi-helper/actions/workflows/ci.yml/badge.svg)](https://github.com/wzgrx/hua-yi-helper/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/wzgrx/hua-yi-helper/actions/workflows/codeql.yml/badge.svg)](https://github.com/wzgrx/hua-yi-helper/actions/workflows/codeql.yml)
+[![GitHub release](https://img.shields.io/github/v/release/wzgrx/hua-yi-helper)](https://github.com/wzgrx/hua-yi-helper/releases/latest)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 
 面向华医网继续医学教育流程的跨端自动化实现。v8 将年度学分规划抽成共享核心，并由 Tampermonkey 与 Hermes/Puppeteer 共用；OpenClaw 通过专用 Skill 和确定性桥接命令操作同一套 Hermes 监督器。目标年度默认要求 **公需课 5 分**，再从**继续教育**和**全员专项**中选择课程补足**其他 20 分**。
 
@@ -217,7 +220,8 @@ npm run test:login
 - Puppeteer 真实浏览器烟雾测试；
 - OpenClaw Skill 安装一致性、状态桥接、凭据脱敏和重复启动保护；
 - 华医网在线登录页 HTTP/DOM 布局测试（`npm run test:live`，不提交表单）；
-- 全源码语法、版本一致性、密钥泄露和回归约束。
+- 全源码语法、版本一致性、密钥泄露和回归约束；
+- 许可证、包元数据、治理文件和 GitHub Actions SHA 锁定自检。
 
 需要把本机浏览器烟雾测试设为强制时：
 
@@ -227,6 +231,19 @@ npm test
 ```
 
 详细需求覆盖见 [`docs/requirements-matrix.md`](docs/requirements-matrix.md)。
+
+## 发布与项目治理
+
+- `main` 的每次提交和拉取请求都执行 Windows/Linux × Node.js 20/24 全量 CI；
+- CodeQL 对 JavaScript 执行推送、拉取请求和每周扫描；
+- Dependabot 每周检查 npm 和 GitHub Actions 更新；
+- 拉取请求执行依赖变更审查，高危新增依赖会使检查失败；
+- 推送 `v*` 标签后，Release 工作流重新测试、生成油猴脚本和源码 ZIP、计算 SHA-256 并发布 GitHub Release；
+- Actions 均锁定到完整提交 SHA，并由 Dependabot 维护更新。
+
+提交代码前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md) 和
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)。安全问题按 [`SECURITY.md`](SECURITY.md)
+通过私密渠道报告；版本变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 隐私
 

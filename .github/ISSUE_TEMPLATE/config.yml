@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 私密安全报告
+    url: https://github.com/wzgrx/hua-yi-helper/security/advisories/new
+    about: 账号、会话、个人信息或依赖漏洞请通过私密渠道提交

@@ -1,10 +1,29 @@
 {
   "name": "hua-yi-helper",
   "version": "8.10.0",
+  "private": true,
   "description": "华医网学习助手 v8.10.0 - Tampermonkey、Hermes、OpenClaw、WSL 与 Win11 跨端年度 5+20 智能规划",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wzgrx/hua-yi-helper.git"
+  },
+  "homepage": "https://github.com/wzgrx/hua-yi-helper#readme",
+  "bugs": {
+    "url": "https://github.com/wzgrx/hua-yi-helper/issues"
+  },
+  "files": [
+    "bin/",
+    "docs/",
+    "integrations/",
+    "scripts/",
+    "src/",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
-    "test": "npm run build && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/captcha.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-supervisor.js && node tests/hermes-status.js && node tests/openclaw-integration.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
+    "test": "npm run build && npm run validate:repo && node tests/core-planner.js && node tests/run-all.js && node tests/dom-integration.js && node tests/async-integration.js && node tests/captcha.js && node tests/hermes-config.js && node tests/hermes-login.js && node tests/hermes-supervisor.js && node tests/hermes-status.js && node tests/openclaw-integration.js && node tests/hermes-browser-smoke.js && node tests/source-quality.js",
     "build": "node scripts/build-userscript.js",
+    "validate:repo": "node scripts/validate-repository.js",
     "hermes": "node src/hermes/cli.js",
     "captcha": "node src/hermes/captcha-cli.js",
     "status": "node src/hermes/status-cli.js",
